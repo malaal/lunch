@@ -1,0 +1,32 @@
+body {
+	margin: 0;
+	padding: 0.5em;
+}
+
+#header {
+	margin: 0;
+	padding: 0 0 0 0.5em;
+	background-color: black;
+	color: white;
+	font-size: 30pt;
+}
+
+table {
+	border: 0;
+	border-collapse: collapse;
+	width: 80%;
+	padding: 1em;
+}
+
+td, th{
+	border-bottom: 1px solid #ccc;
+}
+
+th {
+	font-style: bold;
+	text-align: left;
+}
+
+tr:nth-child(even) {
+	background-color: #f0f0f0;
+}

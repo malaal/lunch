@@ -11,6 +11,8 @@ from datetime import datetime
 Base=declarative_base()
 Session=sessionmaker()
 
+__all__ = ['Restaurant', 'Person', 'Event', 'Vote', 'LunchDB']
+
 #TABLE: list of restaurants
 class Restaurant(Base):
     __tablename__ = 'restaurants'
@@ -18,29 +20,40 @@ class Restaurant(Base):
     name = Column(String(250), nullable=False)  #Restaurant Name
     visits = Column(Integer, default=0)         #Number of visits (ie: number of votes won)
     votes = Column(Integer, default=0)          #Number of times it appeared for a vote
-    lastvisit = Column(Date, default=datetime(1900,1,1)) #Date of last visit (if applicable)
+    last = Column(Date, default=datetime(1900,1,1)) #Date of last visit (if applicable)
+    added = Column(Date, default=datetime.today())   #Date added to DB
+
+#TABLE: List of people who are emailed to vote
+class Person(Base):
+    __tablename__ = 'people'
+    id = Column(Integer, primary_key=True)
+    name = Column(String(250))  #Person's name
+    email = Column(String(250)) #Person's email address
 
 #TABLE: list of vote events
 class Event(Base):
     __tablename__ = 'events'
     id = Column(Integer, primary_key=True)
-    option1 = Column(Integer, ForeignKey(Restaurant.id))
-    option2 = Column(Integer, ForeignKey(Restaurant.id))
-    option3 = Column(Integer, ForeignKey(Restaurant.id))
-    option4 = Column(Integer, ForeignKey(Restaurant.id))
-    option5 = Column(Integer, ForeignKey(Restaurant.id))
+    choice1 = Column(Integer, ForeignKey(Restaurant.id))
+    choice2 = Column(Integer, ForeignKey(Restaurant.id))
+    choice3 = Column(Integer, ForeignKey(Restaurant.id))
+    choice4 = Column(Integer, ForeignKey(Restaurant.id))
+    choice5 = Column(Integer, ForeignKey(Restaurant.id))
+
+    def getChoices(self):
+        return [self.choice1, self.choice2, self.choice3, self.choice4, self.choice5]
 
 #TABLE: list of individual votes, tied to an event
 class Vote(Base):
     __tablename__ = 'votes'
     id = Column(Integer, primary_key=True)
-    email = Column(String(250), nullable=False)
+    user  = Column(Integer, ForeignKey(Person.id))
     event = Column(Integer, ForeignKey(Event.id))
-    rank1 = Column(Integer, ForeignKey(Restaurant.id), nullable=False)
-    rank2 = Column(Integer, ForeignKey(Restaurant.id), nullable=True)
-    rank3 = Column(Integer, ForeignKey(Restaurant.id), nullable=True)
-    rank4 = Column(Integer, ForeignKey(Restaurant.id), nullable=True)
-    rank5 = Column(Integer, ForeignKey(Restaurant.id), nullable=True)
+    rank1 = Column(Integer)
+    rank2 = Column(Integer)
+    rank3 = Column(Integer)
+    rank4 = Column(Integer)
+    rank5 = Column(Integer)
 
 class LunchDB(object):
     def __init__(self, dbfile):
@@ -66,5 +79,13 @@ def demo_restaurant(target, connection, **kwargs):
 def demo_event(target, connection, **kwargs):
     print "CREATING DEMO EVENTS"
     session = Session()
-    session.add(Event(option1=0, option2=1, option3=4, option4=2, option5=3))
+    session.add(Event(choice1=0, choice2=1, choice3=4, choice4=2, choice5=3))
     session.commit()    
+
+@event.listens_for(Event.__table__, 'after_create')
+def demo_person(target, connection, **kwargs):
+    print "CREATING DEMO PEOPLE"
+    session = Session()
+    session.add(Person(name="Uriel Klieger", email="uklieger@space.nrl.navy.mil"))
+    session.add(Person(name="Andrew Howie", email="ahowie@space.nrl.navy.mil"))
+    session.commit()        
