@@ -86,6 +86,6 @@ def demo_event(target, connection, **kwargs):
 def demo_person(target, connection, **kwargs):
     print "CREATING DEMO PEOPLE"
     session = Session()
-    session.add(Person(name="Uriel Klieger", email="uklieger@space.nrl.navy.mil"))
-    session.add(Person(name="Andrew Howie", email="ahowie@space.nrl.navy.mil"))
+    session.add(Person(name="Joe Test", email="jtest@test.com"))
+    session.add(Person(name="Andrew Test", email="atest@test.com"))
     session.commit()        
