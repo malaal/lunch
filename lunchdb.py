@@ -1,6 +1,6 @@
 #!/usr/bin/python
 import sqlite3
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import create_engine
 from sqlalchemy import event
 from sqlalchemy import Column, Integer, String, Date, ForeignKey
@@ -11,7 +11,7 @@ from datetime import datetime
 Base=declarative_base()
 Session=sessionmaker()
 
-__all__ = ['Restaurant', 'Person', 'Event', 'Vote', 'LunchDB']
+__all__ = ['Restaurant', 'Person', 'Event', 'Choice', 'Vote', 'LunchDB']
 
 #TABLE: list of restaurants
 class Restaurant(Base):
@@ -23,25 +23,30 @@ class Restaurant(Base):
     last = Column(Date, default=datetime(1900,1,1)) #Date of last visit (if applicable)
     added = Column(Date, default=datetime.today())   #Date added to DB
 
-#TABLE: List of people who are emailed to vote
+#TABLE: List of people who are eligible to vote
 class Person(Base):
     __tablename__ = 'people'
     id = Column(Integer, primary_key=True)
     name = Column(String(250))  #Person's name
     email = Column(String(250)) #Person's email address
 
+    def __repr__(self):
+        return "<Person '%s' <%s>>"%(self.name, self.email)
+
 #TABLE: list of vote events
 class Event(Base):
     __tablename__ = 'events'
     id = Column(Integer, primary_key=True)
-    choice1 = Column(Integer, ForeignKey(Restaurant.id))
-    choice2 = Column(Integer, ForeignKey(Restaurant.id))
-    choice3 = Column(Integer, ForeignKey(Restaurant.id))
-    choice4 = Column(Integer, ForeignKey(Restaurant.id))
-    choice5 = Column(Integer, ForeignKey(Restaurant.id))
+    date = Column(Date, default=datetime.today())   #Date of event
+    choices = relationship("Choice")
 
-    def getChoices(self):
-        return [self.choice1, self.choice2, self.choice3, self.choice4, self.choice5]
+#TABLE: List of the choices mapped to a single vote event
+class Choice(Base):
+    __tablename__ = 'choices'
+    id = Column(Integer, primary_key=True) 
+    num = Column(Integer)
+    event = Column(Integer, ForeignKey(Event.id))
+    restaurant = Column(Integer, ForeignKey(Restaurant.id))
 
 #TABLE: list of individual votes, tied to an event
 class Vote(Base):
@@ -76,16 +81,24 @@ def demo_restaurant(target, connection, **kwargs):
     session.commit()
 
 @event.listens_for(Event.__table__, 'after_create')
-def demo_event(target, connection, **kwargs):
-    print "CREATING DEMO EVENTS"
-    session = Session()
-    session.add(Event(choice1=0, choice2=1, choice3=4, choice4=2, choice5=3))
-    session.commit()    
-
-@event.listens_for(Event.__table__, 'after_create')
 def demo_person(target, connection, **kwargs):
     print "CREATING DEMO PEOPLE"
     session = Session()
     session.add(Person(name="Joe Test", email="jtest@test.com"))
     session.add(Person(name="Andrew Test", email="atest@test.com"))
     session.commit()        
+    
+@event.listens_for(Choice.__table__, 'after_create')
+def demo_event(target, connection, **kwargs):
+    print "CREATING DEMO EVENTS"
+    session = Session()
+    event = Event()
+    event.choices = [
+        Choice(num=0, restaurant=1),
+        Choice(num=1, restaurant=3),
+        Choice(num=2, restaurant=5),
+        Choice(num=3, restaurant=2),
+        Choice(num=4, restaurant=6)
+        ]
+    session.add(event)
+    session.commit()    

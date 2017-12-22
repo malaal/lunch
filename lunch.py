@@ -12,10 +12,14 @@ import os
 #Configuration options
 DBFILE = "lunch.db"
 NOREPEAT_DAYS = 21
-TIME_DAYS  = [3]         #Day(s) of week to run votes (Monday is 0, see datetime.date.weekday())
+#TIME_DAYS  = [3]         #Day(s) of week to run votes (Monday is 0, see datetime.date.weekday())
 TIME_START = time(9,00)  #Time each day to open the vote
 #TIME_END   = time(11,30) #Time each day to close the vote
+
+#Fake settings for testing
 TIME_END = time(23,59)
+TIME_DAYS = range(7)
+
 
 def doRank(query):
     # query = db.query(Restaurant).all()
@@ -82,11 +86,8 @@ class Manager(Monitor):
     def startVote(self, db):
         self.bus.log("*** Starting a new vote!")
         choices = self.getChoices(db)
-        event = Event(choice1=choices[0].id, 
-            choice2=choices[1].id, 
-            choice3=choices[2].id, 
-            choice4=choices[3].id, 
-            choice5=choices[4].id)
+        event = Event()
+        event.choices = [Choice(num=i, restaurant=choices[i].id) for i in range(5)]            
         db.add(event)
         db.commit()
         self.event = event.id
@@ -207,26 +208,37 @@ class Lunch(object):
         if person is None:
             site += "You aren't allowed to vote"            
         else:
-            site += "<h2>Hello, %s</h2>"%(person.name)
+            site += "<h2>Hello, %s</h2>"%(person.name)            
             vote = db.query(Vote).filter_by(event=eventid).filter_by(user=person.id).one_or_none()
 
             if eventid is None:
                 site += "Voting is closed!"
             else:
                 event = db.query(Event).filter_by(id=eventid).one()
-                choices = event.getChoices()
 
                 if action=='vote':
                     # SUBMITTING A VOTE
+                    newvote = Vote(
+                        user=person.id, 
+                        event=event.id, 
+                        rank1=args['c1'],
+                        rank2=args['c2'],
+                        rank3=args['c3'],
+                        rank4=args['c4'],
+                        rank5=args['c5'])
+
                     if vote is None:
                         site += "<h2>Vote received!</h2>"
+                        db.add(newvote)
                     else:
                         site += "<h2>Updated vote received!</h2>"
+                        db.delete(vote)
+                        db.add(newvote)
                     
-                    site += '<table >'                
+                    site += '<table>'                
                     i = 1
-                    for c in choices:                
-                        restaurant = db.query(Restaurant).filter_by(id=c).one()
+                    for c in event.choices:                
+                        restaurant = db.query(Restaurant).filter_by(id=c.restaurant).one()
                         site += '''<tr>                
                             <td>%s</td>
                             <td>%s</td>                        
@@ -238,27 +250,57 @@ class Lunch(object):
                     if vote is not None:
                         site += "<h3>You have already voted</h3>"
                     # ALLOW USER TO VOTE
+                    site += '''<p>Vote below by ranking each of these restaurants from 1 to 5, 
+                    where 1 is "Meh," and 5 is "I really want to go here!" The value you give
+                    restaurants will affect their future rankings.</p>'''
                     site += '<form method="post" action="vote">'
                     site += '<input type="hidden" name="u", value="%s">'%u
-                    site += '<table >'
-                    site += '<tr><th/><th>#1</th><th>#2</th><th>#3</th><th>#4</th><th>#5</th><th>No</th>'
+                    site += '<table>'
+                    site += '<tr><th/><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>'
                     i = 1
-                    for c in choices:                
-                        restaurant = db.query(Restaurant).filter_by(id=c).one()
+                    for c in event.choices:                
+                        restaurant = db.query(Restaurant).filter_by(id=c.restaurant).one()
                         site += '''<tr>                
                             <td>%s</td>
                             <td><input type="radio" name="c%d" value="1"></td>
                             <td><input type="radio" name="c%d" value="2"></td>
-                            <td><input type="radio" name="c%d" value="3"></td>
+                            <td><input type="radio" name="c%d" value="3" checked></td>
                             <td><input type="radio" name="c%d" value="4"></td>
-                            <td><input type="radio" name="c%d" value="5"></td>
-                            <td><input type="radio" name="c%d" value="6" checked></td>
-                        </tr>'''%(restaurant.name,i,i,i,i,i,i)
-                        i += 1 
+                            <td><input type="radio" name="c%d" value="5"></td>                            
+                        </tr>'''%(restaurant.name,i,i,i,i,i)
+                        i += 1
                     site += '</table>'
                     site += '<button type="submit" name="action" value="vote">Vote</button>'
                     site += '</form>'
 
+        site += self.footer()
+        return site
+
+    @cherrypy.expose
+    def results(self, count=10):
+        db = cherrypy.request.db
+        
+        #Current Event        
+        currenteventid = cherrypy.engine.publish("get-event")[0]
+            
+        #All Events
+        events = db.query(Event).order_by(Event.date.desc(), Event.id.desc()).all()
+        
+        site = self.header("Lunch", "Results")
+        for i in range(min(count, len(events))):
+            event = events[i]
+            if event.id == currenteventid:
+                site += '<h2><i>Current Event:</i> %s</h2>'%(events[i].date)                
+                for choice in event.choices:
+                    restaurant = db.query(Restaurant).filter_by(id=choice.restaurant).one()
+                    site += "<p>%s</p>"%(restaurant.name)
+            else:
+                site += '<h2>%s</h2>'%(events[i].date)
+                for choice in event.choices:
+                    restaurant = db.query(Restaurant).filter_by(id=choice.restaurant).one()
+                    site += "<p>%s</p>"%(restaurant.name)
+
+        
         site += self.footer()
         return site
 
@@ -371,9 +413,6 @@ class Lunch(object):
         site += self.footer()
         return site
 
-def foo(*args):
-    print args
-    return 1
 
 if __name__ == '__main__':
     conf = {
