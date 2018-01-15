@@ -1,6 +1,6 @@
 body {
 	margin: 0;
-	padding: 0.5em;
+	padding: 0 0.5em;
 }
 
 #header {
@@ -11,6 +11,43 @@ body {
 	font-size: 30pt;
 }
 
+#footer {
+	height: 1.5em;
+	background-color: #666666;
+	border-top: 1px solid black;
+	border-bottom: 3px solid black;
+	padding: 0 0 0 0.5em;
+	margin-top: 0.5em;
+	position: relative;
+	bottom: 0;
+}
+
+#menu {	
+	margin: 0;
+	padding: 2px;
+	background-color: #666666;
+	color: white;
+	font-size: 12pt;
+	height: 1.5em;
+	border-bottom: 1px solid black;
+}
+
+.menu_button {
+	float:right;
+	text-align: center;
+	margin: 0 .5em 0 0;
+	padding: 0;
+	width: 100px;	
+}
+
+.menu_button a { 
+	color:white; 
+	text-decoration: none;
+	padding: 0;
+	margin: 0;
+}
+
+/* Site-wide table styles */
 table {
 	border: 0;
 	border-collapse: collapse;
@@ -35,4 +72,32 @@ tr:nth-child(even) {
 
 input[type="radio"] {
 	margin: 0;
+}
+
+
+/* 
+Styles for the results tables 
+*/
+.table_results th {
+	text-align:left;
+}
+
+.table_results td {
+	text-align:left;
+}
+
+.table_results td:first-child {
+	/*font-weight:bold;*/
+}
+
+.table_results td:not(:first-child), .table_results th:not(:first-child) {
+	width: 15%;	
+}
+
+/* 
+Style for the voting table 
+*/
+.table_vote td:not(:first-child), .table_vote th:not(:first-child) {
+	width: 12%;
+	text-align: center;	
 }

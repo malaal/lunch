@@ -9,7 +9,9 @@ from datetime import datetime, date, time, timedelta
 import random
 import os
 
-#Configuration options
+#####################################
+# Configuration options
+#####################################
 DBFILE = "lunch.db"
 NOREPEAT_DAYS = 21
 #TIME_DAYS  = [3]         #Day(s) of week to run votes (Monday is 0, see datetime.date.weekday())
@@ -19,6 +21,8 @@ TIME_START = time(9,00)  #Time each day to open the vote
 #Fake settings for testing
 TIME_END = time(23,59)
 TIME_DAYS = range(7)
+#####################################
+#####################################
 
 
 def doRank(query):
@@ -99,8 +103,8 @@ class Manager(Monitor):
 
     def getChoices(self, db):
         '''
-            Chooses a restaurant list by:
-            1) sorting by rank
+            Chooses a restaurant list for an event by:
+            1) TODO: sorting by rank 
             2) dividing the list into "thirds"
             3) selecting one from each third
             4) randomly selecting from the list up to self.choices            
@@ -125,16 +129,23 @@ class Manager(Monitor):
 
 
 class Lunch(object):
+    ''' This object encapsulates the entire website '''
     def header(self, title="Lunch", subtitle=""):
         title = "%s%s"%(title, (": " + subtitle) if subtitle else "")
         head = '''<html><head>
         <title>%s</title>
         <link rel="stylesheet" href="static/style.css"/>
         </head>'''%title   
-        head += "<body><div id=header>%s</div>"%(title)        
+        head += "<body><div id=header>%s</div>"%(title) 
+        head += "<div id=menu>"
+        head += "<div class=menu_button><a href=/admin>Admin</a></div>"
+        head += "<div class=menu_button><a href=/results>Results</a></div>"
+        head += "<div class=menu_button><a href=/>Home</a></div>"
+        head += "</div>"
         return head
 
     def footer(self):
+        #foot = '<div id=footer>Lunch</div></body></html>'
         foot = '</body></html>'
         return foot
 
@@ -146,29 +157,8 @@ class Lunch(object):
         # site = "<html><head><title>Lunch</title></head>"
         site = self.header("Lunch")
 
-        '''
-        site += 'Restaurants available for vote (before %s):<br/>'%datetime.strftime(datelimit, "%Y-%m-%d")
-        site += '<table >'
-        site += '<tr><td>Restaurant</td><td>Votes</td><td>Visits</td><td>Last Visit</td><td>Rank</td></tr>'
-        query = db.query(Restaurant).order_by(Restaurant.visits.desc())
-        query = query.filter(Restaurant.last < datetime.strftime(datelimit, "%Y-%m-%d"))
-        for row in query.all():  
-            rank = 1
-            if row.votes > 0:
-                rank = float(row.visits) / float(row.votes)
-
-            site += '<tr>'
-            site += '<td>%s</td>'%(row.name)
-            site += '<td>%d</td>'%(row.votes)
-            site += '<td>%d</td>'%(row.visits)
-            site += '<td>%s</td>'%(row.last)
-            site += '<td>%f</td>'%(rank)
-            site += '</tr>'
-        site += '</table>'
-        '''
-
         site += '<h2>Restaurant Leaderboard</h2><br/>'
-        site += '<table >'
+        site += '<table>'
         site += '<tr><th>Rank</th><th>Restaurant</th><th>Votes</th><th>Visits</th><th>Last Visit</th></tr>'
         query = db.query(Restaurant).order_by(Restaurant.visits.desc())        
         i = 1
@@ -198,82 +188,120 @@ class Lunch(object):
 
     @cherrypy.expose
     def vote(self, u="", action="", **args):
+        ''' 
+        The vote page takes in an email address as parameter u.
+        Displays a vote dialog with no action; enters/replaces a vote when
+        action="vote"
+        '''
         db = cherrypy.request.db
         eventid = cherrypy.engine.publish("get-event")[0]
 
+        #voteinput[x] is the rank (1-5) of choice[x] or None
+        try:
+            voteinput = [int(args["c%d"%i]) if "c%d"%i in args else None for i in range(5)]
+        except ValueError:
+            voteinput = [None, None, None, None, None]
+
         site = self.header("Lunch", "Vote") 
 
-        #TODO: Verify the user is in the Persons table and check if they've voted in this event already        
-        person = db.query(Person).filter_by(email=u).one_or_none()
+        #TODO: Verify the user is in the Users table and check if they've voted in this event already        
+        person = db.query(User).filter_by(email=u).one_or_none()
         if person is None:
-            site += "You aren't allowed to vote"            
+            site += "<h2>You aren't allowed to vote</h2>"            
         else:
-            site += "<h2>Hello, %s</h2>"%(person.name)            
-            vote = db.query(Vote).filter_by(event=eventid).filter_by(user=person.id).one_or_none()
+            site += "<h2>Hello, %s</h2>"%(person.name)                        
 
             if eventid is None:
-                site += "Voting is closed!"
+                site += "<h3>Voting is closed!</h3>"
             else:
                 event = db.query(Event).filter_by(id=eventid).one()
+                oldvotes = db.query(Vote).join(User).filter(Vote.event==event.id, User.email==u).all()
 
-                if action=='vote':
+                if action=='vote' and all(voteinput):
                     # SUBMITTING A VOTE
-                    newvote = Vote(
-                        user=person.id, 
-                        event=event.id, 
-                        rank1=args['c1'],
-                        rank2=args['c2'],
-                        rank3=args['c3'],
-                        rank4=args['c4'],
-                        rank5=args['c5'])
+                    newvotes = [Vote(user=person.id, event=event.id, choice=event.choices[i].id, rank=voteinput[i]) for i in range(5)]
 
-                    if vote is None:
+                    if len(oldvotes)==0:
                         site += "<h2>Vote received!</h2>"
-                        db.add(newvote)
+                        db.add_all(newvotes)
                     else:
                         site += "<h2>Updated vote received!</h2>"
-                        db.delete(vote)
-                        db.add(newvote)
-                    
-                    site += '<table>'                
-                    i = 1
-                    for c in event.choices:                
-                        restaurant = db.query(Restaurant).filter_by(id=c.restaurant).one()
+                        [db.delete(v) for v in oldvotes]
+                        db.add_all(newvotes)
+
+                    #Display the received vote for verification
+                    site += '<table>'      
+                    for restaurant, rank in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==event.id, Vote.user==person.id).all():
                         site += '''<tr>                
                             <td>%s</td>
                             <td>%s</td>                        
-                        </tr>'''%(restaurant.name,args['c%d'%i])
-                        i += 1 
+                        </tr>'''%(restaurant,rank)
                     site += '</table>'
 
                 else:
-                    if vote is not None:
-                        site += "<h3>You have already voted</h3>"
-                    # ALLOW USER TO VOTE
+                    # Display the vote table for the user
+                    # If incomplete voteinput was passed in already, populate the table with it
+                    if len(oldvotes) > 0:
+                        site += "<h3>You have already voted, but you can change your vote.</h3>"
+                    if any(voteinput):
+                        site += "<h3>You must rank all choices before voting.</h3>"
                     site += '''<p>Vote below by ranking each of these restaurants from 1 to 5, 
-                    where 1 is "Meh," and 5 is "I really want to go here!" The value you give
+                    where 1 is "Meh," and 5 is "I really want to go here!" You can give multiple
+                    restaurants the same rank if you like them equally. The rank you give
                     restaurants will affect their future rankings.</p>'''
-                    site += '<form method="post" action="vote">'
-                    site += '<input type="hidden" name="u", value="%s">'%u
-                    site += '<table>'
-                    site += '<tr><th/><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>'
-                    i = 1
-                    for c in event.choices:                
-                        restaurant = db.query(Restaurant).filter_by(id=c.restaurant).one()
-                        site += '''<tr>                
-                            <td>%s</td>
-                            <td><input type="radio" name="c%d" value="1"></td>
-                            <td><input type="radio" name="c%d" value="2"></td>
-                            <td><input type="radio" name="c%d" value="3" checked></td>
-                            <td><input type="radio" name="c%d" value="4"></td>
-                            <td><input type="radio" name="c%d" value="5"></td>                            
-                        </tr>'''%(restaurant.name,i,i,i,i,i)
-                        i += 1
-                    site += '</table>'
-                    site += '<button type="submit" name="action" value="vote">Vote</button>'
-                    site += '</form>'
+                    site += '<form method="post" action="vote">\n'
+                    site += '<input type="hidden" name="u", value="%s">\n'%u
+                    site += '<table class=table_vote>\n'
+                    site += '<tr><th/><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>\n'
+                    for i, restaurant in enumerate(db.query(Restaurant.name).join(Choice).filter(Choice.event==event.id).all()):
+                        site += '<tr><td>%s</td>\n'%(restaurant.name)
+                        for value in range(1,6):
+                            site += '<td><input type="radio" name="c%d" value="%d" %s></td>\n'%(
+                                i, value,
+                                "checked" if "c%d"%i in args and str(value)==args["c%d"%i] else "")
+                        site += '</tr>\n'
+                    site += '</table>\n'
+                    site += '<button type="submit" name="action" value="vote">Vote</button>\n'
+                    site += '</form>\n'
 
         site += self.footer()
+        return site
+
+    def results_table(self, site, event):
+        '''
+        This helper prints a table of votes for the input event
+        '''
+
+        db = cherrypy.request.db
+
+        site += '<h2>%s</h2>'%(event.date)
+
+        #print out the header row (restaurant names)
+        site += "<table class=table_results>\n"
+        # site += "<caption>Votes recorded</caption>"
+        site += "<tr><th/>"
+        for c in event.choices:
+            site += "<th>%s</th>"%(db.query(Restaurant).join(Choice).filter(Choice.id==c.id).one().name)
+        site += "</tr>\n"
+
+        #print out the votes (user name, rank, rank, rank, etc.)
+        #build a dictionary from a query and then display that.
+
+        #return a list of all votes for all users for a single event
+        votes = {}
+        for name, rank, i in db.query(User.name, Vote.rank, Choice.num).join(Vote).join(Choice).filter(Vote.event==event.id).all():
+            entry = votes.get(name, [-1, -1, -1, -1, -1])
+            entry[i] = rank
+            votes[name] = entry
+
+        for u in sorted(votes.keys()):
+            site += "<tr>"
+            site += "<td>%s</td>"%u
+            for i in range(5):
+                site += "<td>%d</td>"%(votes[u][i])
+            site += "</tr>\n"
+        site += "</table>\n"
+
         return site
 
     @cherrypy.expose
@@ -287,19 +315,10 @@ class Lunch(object):
         events = db.query(Event).order_by(Event.date.desc(), Event.id.desc()).all()
         
         site = self.header("Lunch", "Results")
-        for i in range(min(count, len(events))):
-            event = events[i]
-            if event.id == currenteventid:
-                site += '<h2><i>Current Event:</i> %s</h2>'%(events[i].date)                
-                for choice in event.choices:
-                    restaurant = db.query(Restaurant).filter_by(id=choice.restaurant).one()
-                    site += "<p>%s</p>"%(restaurant.name)
-            else:
-                site += '<h2>%s</h2>'%(events[i].date)
-                for choice in event.choices:
-                    restaurant = db.query(Restaurant).filter_by(id=choice.restaurant).one()
-                    site += "<p>%s</p>"%(restaurant.name)
-
+        for event in events:
+            if event.id == currenteventid:                
+                site += "<h2>Current Event</h2>"
+            site = self.results_table(site, event)
         
         site += self.footer()
         return site
@@ -341,10 +360,10 @@ class Lunch(object):
             for row in db.query(Restaurant).filter(Restaurant.name==name).all():
                 db.delete(row)
         elif action == 'add_person':
-            P = Person(name=name, email=email)
+            P = User(name=name, email=email)
             db.add(P)
         elif action == 'del_person':
-            for row in db.query(Person).filter(Person.name==name).all():         
+            for row in db.query(User).filter(User.name==name).all():         
                 db.delete(row)
 
         site += '<hr/>Restaurants in the list:<br/>'
@@ -390,7 +409,7 @@ class Lunch(object):
         site += '<hr/>People:<br/>'
         site += '<table>'
         site += '<tr><th/><th>Name</td><th>Email</th></tr>'
-        Q = db.query(Person).order_by(Person.name)
+        Q = db.query(User).order_by(User.name)
         for row in Q:
             site += '''<tr>
                 <td>                    
@@ -407,7 +426,7 @@ class Lunch(object):
         site += '''<form method="post", action="admin">
             Name<input type="text" name="name" required>
             Email<input type="email" name="email">            
-            <button type="submit" name="action" value="add_person">Add Person</button>
+            <button type="submit" name="action" value="add_person">Add User</button>
             </form>'''  
 
         site += self.footer()
