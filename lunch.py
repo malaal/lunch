@@ -1,10 +1,15 @@
 #!/usr/bin/python
+from lunchdb import *
+
 import cherrypy
 from cherrypy.process.plugins import Monitor
 from saplugin import SAEnginePlugin
 from satool import SATool
-from lunchdb import *
+
 from sqlalchemy import cast, Date
+
+from pyvotecore.schulze_method import SchulzeMethod
+
 from datetime import datetime, date, time, timedelta
 import random
 import os
@@ -15,7 +20,7 @@ import os
 DBFILE = "lunch.db"
 NOREPEAT_DAYS = 21
 #TIME_DAYS  = [3]         #Day(s) of week to run votes (Monday is 0, see datetime.date.weekday())
-TIME_START = time(9,00)  #Time each day to open the vote
+TIME_START = time(9,30)  #Time each day to open the vote
 #TIME_END   = time(11,30) #Time each day to close the vote
 
 #Fake settings for testing
@@ -55,10 +60,12 @@ class Manager(Monitor):
     
     def start(self):
         self.bus.subscribe("get-event", self.getEvent)
+        self.bus.subscribe("calculate", self.calculate)
         super(Manager, self).start()
 
     def stop(self):
         self.bus.unsubscribe("get-event", self.getEvent)
+        self.bus.unsubscribe("calculate", self.calculate)
         super(Manager, self).stop()
 
     def getEvent(self):
@@ -95,10 +102,15 @@ class Manager(Monitor):
         db.add(event)
         db.commit()
         self.event = event.id
+        #TODO:
+        #   1) email ballots
 
     def endVote(self, db):
         self.bus.log("*** Voting has closed!")        
-        #TODO: tabulate responses!
+        #TODO: 
+        #   1) pick a tie-breaker user
+        #   2) calculate responses!
+        #   3) email results
         self.event = None
 
     def getChoices(self, db):
@@ -127,6 +139,29 @@ class Manager(Monitor):
         random.shuffle(choices)
         return choices
 
+    def calculate(self):
+        '''Calculate the winner for this event based on current votes'''
+        db = self.bus.publish("bind-session")[0]        
+
+        #return a dict of all votes for all users for a single event
+        votes = {}
+        for name, rank, i, rest in db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==self.event).all():
+            #entry = votes.get(name, [-1, -1, -1, -1, -1])
+            entry = votes.get(name, (name,{}))
+            entry[1][rest] = rank
+            print entry
+            votes[name] = entry
+        #Format the list into the input for Schulze
+        input = []
+        for v in votes:
+            input.append({"count":1, "ballot":votes[v][1]})
+
+        output = SchulzeMethod(input, ballot_notation="ranking").as_dict()
+
+        #TODO: Break ties by selecting a random user's vote?
+        #TODO: Log when a user has been used as a tie-breaker and don't use them
+
+        return output
 
 class Lunch(object):
     ''' This object encapsulates the entire website '''
@@ -237,6 +272,9 @@ class Lunch(object):
                             <td>%s</td>                        
                         </tr>'''%(restaurant,rank)
                     site += '</table>'
+
+                    result = cherrypy.engine.publish("calculate")[0]                    
+                    site += "<h3>Current Winner: %s</h3>"%result['winner']                    
 
                 else:
                     # Display the vote table for the user

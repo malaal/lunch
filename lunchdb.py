@@ -171,8 +171,11 @@ def main():
     for u in db.query(Vote).join(User).filter(Vote.event==1): 
         print u
     #return a list of all vote ranks for all users for a single event, with their choice number
-    for u in db.query(User.name, Vote.rank, Choice.num).join(Vote).join(Choice).filter(Vote.event==2): 
-        print u        
+    for u in db.query(User.name, Vote.rank, Choice.num).join(Vote).join(Choice).filter(Vote.event==1): 
+        print u
+    #return a list of all vote ranks for all users for a single event, with their choice number and name
+    for u in db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==1): 
+        print u                   
 
     # #For each user get the array of all their votes
     # for u in db.query(User):
