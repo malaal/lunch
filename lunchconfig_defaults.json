@@ -1,0 +1,23 @@
+{
+  "lunch": {
+    "norepeat": 21, 
+    "dbfile": "lunch.db", 
+    "time_start": [
+      9, 
+      30
+    ], 
+    "time_days": [
+      3
+    ], 
+    "time_end": [
+      11, 
+      0
+    ]
+  }, 
+  "smtp": {
+    "user": "user", 
+    "pass": "password", 
+    "port": 465, 
+    "server": "smtpserver"
+  }
+}

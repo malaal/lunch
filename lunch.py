@@ -1,5 +1,6 @@
 #!/usr/bin/python
-from lunchdb import *
+from LunchDB import *
+from LunchConfig import LunchConfig
 
 import cherrypy
 from cherrypy.process.plugins import Monitor
@@ -14,39 +15,29 @@ from datetime import datetime, date, time, timedelta
 import random
 import os
 
-#####################################
-# Configuration options
-#####################################
-DBFILE = "lunch.db"
-NOREPEAT_DAYS = 21
-#TIME_DAYS  = [3]         #Day(s) of week to run votes (Monday is 0, see datetime.date.weekday())
-TIME_START = time(9,30)  #Time each day to open the vote
-#TIME_END   = time(11,30) #Time each day to close the vote
-
-#Fake settings for testing
-TIME_END = time(23,59)
-TIME_DAYS = range(7)
-#####################################
-#####################################
-
+# Load global configuration options
+cfg = LunchConfig("lunchconfig.json")
 
 def doRank(query):
     # query = db.query(Restaurant).all()
 
-    maxvotes  = float(max([I.votes for I in query]))
-    maxvisits = float(max([I.visits for I in query]))
+    # maxvotes  = float(max([I.votes for I in query]))
+    # maxvisits = float(max([I.visits for I in query]))
     
-    ranks = {}
-    for I in query:
-        if I.visits == 0:
-            ranks[I] = -100.0 * (I.votes / maxvotes)
-        else:
-            ranks[I] = 100.0 * (float(I.visits) / I.votes)
-            if ranks[I] == 100:
-                ranks[I] += 10*I.visits
+    # ranks = {}
+    # for I in query:
+    #     if I.visits == 0:
+    #         ranks[I] = -100.0 * (I.votes / maxvotes)
+    #     else:
+    #         ranks[I] = 100.0 * (float(I.visits) / I.votes)
+    #         if ranks[I] == 100:
+    #             ranks[I] += 10*I.visits
 
     #Return array of tuples (Restaurant, Rank) reverse-sorted by rank
-    return sorted([(K,ranks[K]) for K in ranks], key=lambda I:I[1], reverse=True)
+    #return sorted([(K,ranks[K]) for K in ranks], key=lambda I:I[1], reverse=True)
+
+    #Return garbage array of tuples (Restaurant, Rank)    
+    return [(K,0) for K in query]
 
 class Manager(Monitor):
     ''' 
@@ -57,6 +48,9 @@ class Manager(Monitor):
     def __init__(self, bus, interval):
         super(Manager, self).__init__(bus, self.run, interval)
         self.event = None
+
+        #init the DB
+        LunchDB(cfg.dbfile)     
     
     def start(self):
         self.bus.subscribe("get-event", self.getEvent)
@@ -75,11 +69,11 @@ class Manager(Monitor):
         db = self.bus.publish("bind-session")[0]
         D, T = self.now()                
         if self.event is None:
-            if D in TIME_DAYS and T >= TIME_START and T < TIME_END:
+            if D in cfg.time_days and T >= cfg.time_start and T < cfg.time_end:
                 #Start a new vote                
                 self.startVote(db)
         else:
-            if T >= TIME_END:
+            if T >= cfg.time_end:
                 #End the current vote
                 self.endVote(db)     
         self.bus.publish("commit-session")
@@ -124,8 +118,8 @@ class Manager(Monitor):
         votedate = self.today()
         restaurants = db.query(Restaurant).all()
 
-        #Select restaurants out of the noRepeatWeeks range            
-        validRestaurants = [R for R in restaurants if R.last <= votedate - timedelta(1+NOREPEAT_DAYS)]
+        #Select restaurants out of the noRepeatWeeks range                
+        validRestaurants = [R for R in restaurants if R.last <= votedate - timedelta(1+cfg.norepeat)]        
         #ranked = sorted(validRestaurants, key=lambda I:I.rank, reverse=True)
         ranked = validRestaurants
 
@@ -149,7 +143,6 @@ class Manager(Monitor):
             #entry = votes.get(name, [-1, -1, -1, -1, -1])
             entry = votes.get(name, (name,{}))
             entry[1][rest] = rank
-            print entry
             votes[name] = entry
         #Format the list into the input for Schulze
         input = []
@@ -173,7 +166,7 @@ class Lunch(object):
         </head>'''%title   
         head += "<body><div id=header>%s</div>"%(title) 
         head += "<div id=menu>"
-        head += "<div class=menu_button><a href=/admin>Admin</a></div>"
+        # head += "<div class=menu_button><a href=/admin>Admin</a></div>"
         head += "<div class=menu_button><a href=/results>Results</a></div>"
         head += "<div class=menu_button><a href=/>Home</a></div>"
         head += "</div>"
@@ -187,25 +180,21 @@ class Lunch(object):
     @cherrypy.expose
     def index(self):
         db = cherrypy.request.db
-        datelimit = datetime.today() - timedelta(NOREPEAT_DAYS)        
+        datelimit = datetime.today() - timedelta(cfg.norepeat)        
 
         # site = "<html><head><title>Lunch</title></head>"
         site = self.header("Lunch")
 
         site += '<h2>Restaurant Leaderboard</h2><br/>'
         site += '<table>'
-        site += '<tr><th>Rank</th><th>Restaurant</th><th>Votes</th><th>Visits</th><th>Last Visit</th></tr>'
+        site += '<tr><th>Rank</th><th>Restaurant</th><th>Visits</th><th>Last Visit</th></tr>'
         query = db.query(Restaurant).order_by(Restaurant.visits.desc())        
         i = 1
         for row in query.all():
             rank = 1
-            if row.votes > 0:
-                rank = float(row.visits) / float(row.votes)
-
             site += '<tr>'
             site += '<td>%d</td>'%(i)
             site += '<td>%s</td>'%(row.name)
-            site += '<td>%d</td>'%(row.votes)
             site += '<td>%d</td>'%(row.visits)
             site += '<td>%s</td>'%(row.last)            
             site += '</tr>'
@@ -376,13 +365,7 @@ class Lunch(object):
             row.last = datetime(dt.year, dt.month, dt.day)
         elif action == 'decrement_visit':
             row = db.query(Restaurant).filter(Restaurant.name==name).one()
-            row.visits -= 1            
-        elif action == 'increment_vote':
-            row = db.query(Restaurant).filter(Restaurant.name==name).one()
-            row.votes += 1      
-        elif action == 'decrement_vote':
-            row = db.query(Restaurant).filter(Restaurant.name==name).one()
-            row.votes -= 1                 
+            row.visits -= 1                           
         elif action == 'add_restaurant':
             rows = db.query(Restaurant).filter(Restaurant.name==name).all()
             if len(rows) == 0:
@@ -406,7 +389,7 @@ class Lunch(object):
 
         site += '<hr/>Restaurants in the list:<br/>'
         site += '<table>'
-        site += '<tr><th/><th>Rank</th><th>Restaurant</th><th>Votes</th><th>Visits</th><th>Last Visit</th><th>Added</th></tr>'
+        site += '<tr><th/><th>Rank</th><th>Restaurant</th><th>Visits</th><th>Last Visit</th><th>Added</th></tr>'
         Q = db.query(Restaurant).order_by(Restaurant.visits.desc())
         R = doRank(Q)
         for row, rank in R:
@@ -414,17 +397,11 @@ class Lunch(object):
                 <td>                    
                     <form style="float:right" method="post" action="admin">
                         <input type="hidden" name="name" value="%s">
-                        <button type="submit" name="action" value="del_restaurant">X</button>
+                        <button type="submit" name="action" value="del_restaurant" onclick="return confirm('Are you sure you want to remove %s?');">X</button>
                     </form>
-                </td>'''%(row.name)
+                </td>'''%(row.name, row.name)
             site += '<td>%d</td>'%(rank)
             site += '<td>%s</td>'%(row.name)
-            site += '''<td>%d
-                    <form style="float:right" method="post" action="admin">
-                        <input type="hidden" name="name" value="%s">
-                        <button type="submit" name="action" value="increment_vote">+</button>
-                        <button type="submit" name="action" value="decrement_vote">-</button>
-                    </form></td>'''%(row.votes, row.name)
             site += '''<td>%s
                     <form style="float:right" method="post" action="admin">
                         <input type="hidden" name="name" value="%s">
@@ -453,9 +430,9 @@ class Lunch(object):
                 <td>                    
                     <form style="float:right" method="post" action="admin">
                         <input type="hidden" name="name" value="%s">
-                        <button type="submit" name="action" value="del_person">X</button>
+                        <button type="submit" name="action" value="del_person" onclick="return confirm('Are you sure you want to remove user %s?');">X</button>
                     </form>
-                </td>'''%(row.name)
+                </td>'''%(row.name, row.name)
             site += '<td>%s</td>'%(row.name)
             site += '<td>%s</td>'%(row.email)    
             site += '</tr>'
@@ -472,20 +449,28 @@ class Lunch(object):
 
 
 if __name__ == '__main__':
+    #Authorized user(s) for the admin page
+    userpassdict = {'admin' : 'admin'}
+
     conf = {
         '/': {
             'tools.db.on': True
         },
+
+        '/admin': {
+            'tools.auth_digest.on': True,
+            'tools.auth_digest.realm': 'lunch',
+            'tools.auth_digest.get_ha1': cherrypy.lib.auth_digest.get_ha1_dict_plain(userpassdict),
+            'tools.auth_digest.key': 'd8f0238a5c3bae97',
+        },
+
         '/static': {
             'tools.staticdir.on': True,
             'tools.staticdir.dir': os.path.join(os.getcwd(), "static")
         }
     }
 
-    #init the DB
-    LunchDB(DBFILE) 
-
     Manager(cherrypy.engine, 1).subscribe()
-    SAEnginePlugin(cherrypy.engine, 'sqlite:///'+DBFILE).subscribe()
+    SAEnginePlugin(cherrypy.engine, 'sqlite:///'+cfg.dbfile).subscribe()
     cherrypy.tools.db = SATool()
     cherrypy.quickstart(Lunch(), '/', conf)

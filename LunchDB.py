@@ -3,8 +3,9 @@ import sqlite3
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import create_engine
 from sqlalchemy import event
-from sqlalchemy import Column, Integer, String, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql.expression import func
 import os, os.path
 from datetime import datetime
 
@@ -18,19 +19,18 @@ class Restaurant(Base):
     __tablename__ = 'restaurants'
     id = Column(Integer, primary_key=True)
     name = Column(String(250), nullable=False)  #Restaurant Name
+    rank = Column(Float, default=0.0)          #Current Rank (updated after each event)
     visits = Column(Integer, default=0)         #Number of visits (ie: number of votes won)
-    votes = Column(Integer, default=0)          #Number of times it appeared for a vote
     last = Column(Date, default=datetime(1900,1,1)) #Date of last visit (if applicable)
     added = Column(Date, default=datetime.today())   #Date added to DB
 
 #TABLE: List of users on this site
-#With a relation to all the votes they made (?)
 class User(Base):
     __tablename__ = 'users'
     id = Column(Integer, primary_key=True)
     name = Column(String(250))  #User's name
     email = Column(String(250)) #User's email address
-    votes = relationship("Vote", backref="User")
+    tb_count = Column(Integer, default=0) #Number of times this user was used to break a tie
 
     def __repr__(self):
         return "<User '%s' <%s>>"%(self.name, self.email)
@@ -40,7 +40,7 @@ class User(Base):
 class Event(Base):
     __tablename__ = 'events'
     id = Column(Integer, primary_key=True)
-    date = Column(Date, default=datetime.today())   #Date of event
+    date = Column(Date, default=func.now())   #Date of event
     choices = relationship("Choice", backref="Event")
     votes = relationship("Vote", backref="Event")
 
@@ -86,14 +86,14 @@ class LunchDB(object):
 def demo_restaurant(target, connection, **kwargs):
     print "CREATING DEMO RESTAURANTS"
     session = Session()
-    session.add(Restaurant(name="Pizza",      votes=10, visits=10))
-    session.add(Restaurant(name="Sandwiches", votes=8,  visits=8))
-    session.add(Restaurant(name="Chinese",    votes=8,  visits=6))
-    session.add(Restaurant(name="Mexican",    votes=10, visits=5))
-    session.add(Restaurant(name="Chicken",    votes=10, visits=3))
-    session.add(Restaurant(name="Italian",    votes=5,  visits=0))
-    session.add(Restaurant(name="Vietnamese", votes=10, visits=0))
-    session.add(Restaurant(name="Japanese",   votes=3,  visits=3))
+    session.add(Restaurant(name="Pizza",      visits=10))
+    session.add(Restaurant(name="Sandwiches", visits=8))
+    session.add(Restaurant(name="Chinese",    visits=6))
+    session.add(Restaurant(name="Mexican",    visits=5))
+    session.add(Restaurant(name="Chicken",    visits=3))
+    session.add(Restaurant(name="Italian",    visits=0))
+    session.add(Restaurant(name="Vietnamese", visits=0))
+    session.add(Restaurant(name="Japanese",   visits=3))
     session.commit()
 
 @event.listens_for(Vote.__table__, 'after_create')
