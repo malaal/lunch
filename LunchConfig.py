@@ -5,6 +5,7 @@ from datetime import time
 class LunchConfig(object):
 	_defaults = '''{
 	  "lunch": {
+	  	"hostname"   : "localhost",
 	    "dbfile"     : "lunch.db",
 	    "norepeat"   : 21,
 	    "time_days"  : [3],
@@ -40,6 +41,10 @@ class LunchConfig(object):
 		return self.config['lunch']['dbfile']
 
 	@property 
+	def hostname(self): 
+		return self.config['lunch']['hostname']
+
+	@property 
 	def norepeat(self): 
 		return self.config['lunch']['norepeat']
 
@@ -56,19 +61,20 @@ class LunchConfig(object):
 		return time(*self.config['lunch']['time_end'])
 
 	@property
-	def smtp_settings(self): 
+	def smtp(self): 
 		return self.config['smtp']	
 
 
 def main():	
-	cfg = LunchConfig("test.json")
+	cfg = LunchConfig("lunchconfig_defaults.json")
 	cfg.save()
+	print "hostname      ",cfg.hostname
 	print "dbfile        ",cfg.dbfile
 	print "norepeat      ",cfg.norepeat
 	print "time_days     ",cfg.time_days
 	print "time_start    ",cfg.time_start
 	print "time_end      ",cfg.time_end
-	print "smtp_settings ",cfg.smtp_settings
+	print "smtp          ",cfg.smtp
 
 if __name__ == '__main__':
 	main()

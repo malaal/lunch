@@ -81,7 +81,6 @@ class LunchDB(object):
 #
 # These event listeners populate a demo dataset iff a new dbfile is created
 #
-
 @event.listens_for(Restaurant.__table__, 'after_create')
 def demo_restaurant(target, connection, **kwargs):
     print "CREATING DEMO RESTAURANTS"
@@ -177,6 +176,10 @@ def main():
     for u in db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==1): 
         print u                   
 
+    print "---------------"
+    #return a list of all users who voted on a single event
+    for u in db.query(User).join(Vote).filter(Vote.event==2):
+        print u
     # #For each user get the array of all their votes
     # for u in db.query(User):
     #     print u.votes

@@ -1,6 +1,7 @@
 #!/usr/bin/python
 from LunchDB import *
 from LunchConfig import LunchConfig
+from LunchMail import LunchMail
 
 import cherrypy
 from cherrypy.process.plugins import Monitor
@@ -14,44 +15,27 @@ from pyvotecore.schulze_method import SchulzeMethod
 from datetime import datetime, date, time, timedelta
 import random
 import os
+from copy import copy
 
 # Load global configuration options
 cfg = LunchConfig("lunchconfig.json")
 
-def doRank(query):
-    # query = db.query(Restaurant).all()
-
-    # maxvotes  = float(max([I.votes for I in query]))
-    # maxvisits = float(max([I.visits for I in query]))
-    
-    # ranks = {}
-    # for I in query:
-    #     if I.visits == 0:
-    #         ranks[I] = -100.0 * (I.votes / maxvotes)
-    #     else:
-    #         ranks[I] = 100.0 * (float(I.visits) / I.votes)
-    #         if ranks[I] == 100:
-    #             ranks[I] += 10*I.visits
-
-    #Return array of tuples (Restaurant, Rank) reverse-sorted by rank
-    #return sorted([(K,ranks[K]) for K in ranks], key=lambda I:I[1], reverse=True)
-
-    #Return garbage array of tuples (Restaurant, Rank)    
-    return [(K,0) for K in query]
-
 class Manager(Monitor):
     ''' 
-    This plugin manages creation and operation of vote sessions.
+    This CherryPy plugin manages creation and operation of vote sessions.
     Is is set up to be run once a minute, and operates based on the 
-    current time and day
+    current time and day, and LunchConfig
     '''
     def __init__(self, bus, interval):
         super(Manager, self).__init__(bus, self.run, interval)
-        self.event = None
+        self.eventid = None
 
         #init the DB
         LunchDB(cfg.dbfile)     
-    
+
+        #init the mailer
+        self.mail = LunchMail(cfg.smtp["server"], cfg.smtp["port"], cfg.smtp["user"], cfg.smtp["pass"])
+
     def start(self):
         self.bus.subscribe("get-event", self.getEvent)
         self.bus.subscribe("calculate", self.calculate)
@@ -62,13 +46,20 @@ class Manager(Monitor):
         self.bus.unsubscribe("calculate", self.calculate)
         super(Manager, self).stop()
 
+    def getEventId(self):
+        return self.eventid
+
     def getEvent(self):
-        return self.event
+        if self.eventid is not None:
+            db = self.bus.publish("bind-session")[0]
+            return db.query(Event).filter_by(id=self.eventid).one_or_none()        
+        else:
+            return None
 
     def run(self):              
         db = self.bus.publish("bind-session")[0]
         D, T = self.now()                
-        if self.event is None:
+        if self.eventid is None:
             if D in cfg.time_days and T >= cfg.time_start and T < cfg.time_end:
                 #Start a new vote                
                 self.startVote(db)
@@ -95,33 +86,75 @@ class Manager(Monitor):
         event.choices = [Choice(num=i, restaurant=choices[i].id) for i in range(5)]            
         db.add(event)
         db.commit()
-        self.event = event.id
-        #TODO:
-        #   1) email ballots
+        self.eventid = event.id
+
+        for user in db.query(User).all():
+            link = "http://%s/vote?u=%s"%(cfg.hostname, user.email)
+
+            email = '''
+            <html><body>
+            <h1>Lunch!</h1>
+            <p>The lunch ballot is now open for %s.
+            <a style="font-weight: bold;" href="%s">Vote Here!</a>
+            </p>
+            <p>If you can't make it to lunch this week, ignore this email for now.</p>
+            <p>Today's options are:
+                <ul>
+            '''%(event.date, link)
+            for c in event.choices:
+                email += "<li>%s</li>"%(db.query(Restaurant).join(Choice).filter(Choice.id==c.id).one().name)
+            email +='''
+                </ul>
+            </p>
+            </body></html>
+            '''
+
+            self.bus.log("Emailing %s"%user.email)
+            self.mail.sendhtml([user.email], "Lunch Vote %s"%event.date, email)
 
     def endVote(self, db):
-        self.bus.log("*** Voting has closed!")        
-        #TODO: 
-        #   1) pick a tie-breaker user
-        #   2) calculate responses!
-        #   3) email results
-        self.event = None
+        self.bus.log("*** Voting has closed!")
+        event = self.getEvent()
+        winner, tb_user = self.calculate(db)   
+    
+        #Email the users who voted only
+        attendees = db.query(User).join(Vote).filter(Vote.event==event.id).all()
+        email = '''
+        <html><body>
+        <h1>Lunch today: %s</h1>
+        <p>The lunch ballot is closed for %s.</p>
+        <p>Who is coming today:
+            <ul>
+        '''%(winner, event.date)
+        for user in attendees:
+            email += "<li>%s</li>"%(user.name)
+        email +='''
+            </ul>
+        </p>
+        <p>This week's tie-breaker was: %s</p>
+        </body></html>
+        '''%(tb_user)
+
+        self.bus.log("Emailing Results")
+        self.mail.sendhtml([user.email for user in attendees], "Lunch Vote %s"%event.date, email)
+
+        self.eventid = None
 
     def getChoices(self, db):
         '''
             Chooses a restaurant list for an event by:
-            1) TODO: sorting by rank 
+            1) sort by rank 
             2) dividing the list into "thirds"
             3) selecting one from each third
-            4) randomly selecting from the list up to self.choices            
+            4) randomly selecting from the list up to self.choices    
+            *) TODO: promoting restaurants without any votes        
         '''
         votedate = self.today()
         restaurants = db.query(Restaurant).all()
 
         #Select restaurants out of the noRepeatWeeks range                
         validRestaurants = [R for R in restaurants if R.last <= votedate - timedelta(1+cfg.norepeat)]        
-        #ranked = sorted(validRestaurants, key=lambda I:I.rank, reverse=True)
-        ranked = validRestaurants
+        ranked = sorted(validRestaurants, key=lambda I:I.rank, reverse=True)
 
         #Divide into "thirds"
         third = len(ranked)/3
@@ -129,32 +162,50 @@ class Manager(Monitor):
                    random.choice(ranked[third:-third]),
                    random.choice(ranked[-third:])]
         ranked = [R for R in ranked if R not in choices]
+        new = [R for R in ranked if R.visits==0]
+        
+        #TODO: instead of picking two random ones here, get a list of
+        # "unvisited" places and pick from that.
+        # If more are still required, randomly pick from what's left.
         choices.extend(random.sample(ranked, 5-3))
         random.shuffle(choices)
         return choices
 
-    def calculate(self):
+    def calculate(self, db):
         '''Calculate the winner for this event based on current votes'''
-        db = self.bus.publish("bind-session")[0]        
 
         #return a dict of all votes for all users for a single event
         votes = {}
-        for name, rank, i, rest in db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==self.event).all():
-            #entry = votes.get(name, [-1, -1, -1, -1, -1])
-            entry = votes.get(name, (name,{}))
-            entry[1][rest] = rank
-            votes[name] = entry
-        #Format the list into the input for Schulze
-        input = []
-        for v in votes:
-            input.append({"count":1, "ballot":votes[v][1]})
+        event_votes = db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==self.eventid)
 
-        output = SchulzeMethod(input, ballot_notation="ranking").as_dict()
+        if event_votes.count() > 0:
+            for name, rank, i, rest in event_votes.all():
+                entry = votes.get(name, {})
+                entry[rest] = rank
+                votes[name] = entry
+        
+            #Format the list into the input for Schulze
+            input = []
+            for v in votes:
+                input.append({"count":1, "ballot":copy(votes[v])})
 
-        #TODO: Break ties by selecting a random user's vote?
-        #TODO: Log when a user has been used as a tie-breaker and don't use them
+            #Randomly select a tie-breaker user among those tied for the lowest tb_count            
+            users = db.query(User).order_by(User.tb_count).all()
+            users = [U for U in users if U.tb_count == users[0].tb_count]
+            tb_user = random.choice(users)
 
-        return output
+            tb_votes = event_votes.filter(Vote.user == tb_user.id).order_by(Vote.rank.desc()).all()
+            tb_list = [x[3] for x in tb_votes]        
+
+            #Update the user's tb_count
+            tb_user.tb_count += 1
+            db.commit()
+
+            output = SchulzeMethod(input, tie_breaker=tb_list, ballot_notation="rating").as_dict()
+            return output['winner'], tb_user.name
+        else:
+            #No votes?!
+            return "No Votes!", ""        
 
 class Lunch(object):
     ''' This object encapsulates the entire website '''
@@ -218,7 +269,7 @@ class Lunch(object):
         action="vote"
         '''
         db = cherrypy.request.db
-        eventid = cherrypy.engine.publish("get-event")[0]
+        event = cherrypy.engine.publish("get-event")[0]
 
         #voteinput[x] is the rank (1-5) of choice[x] or None
         try:
@@ -235,10 +286,9 @@ class Lunch(object):
         else:
             site += "<h2>Hello, %s</h2>"%(person.name)                        
 
-            if eventid is None:
+            if event is None:
                 site += "<h3>Voting is closed!</h3>"
             else:
-                event = db.query(Event).filter_by(id=eventid).one()
                 oldvotes = db.query(Vote).join(User).filter(Vote.event==event.id, User.email==u).all()
 
                 if action=='vote' and all(voteinput):
@@ -260,14 +310,14 @@ class Lunch(object):
                             <td>%s</td>
                             <td>%s</td>                        
                         </tr>'''%(restaurant,rank)
-                    site += '</table>'
+                    site += '</table>'    
 
-                    result = cherrypy.engine.publish("calculate")[0]                    
-                    site += "<h3>Current Winner: %s</h3>"%result['winner']                    
+                    # cherrypy.engine.publish("calculate")              
 
                 else:
                     # Display the vote table for the user
                     # If incomplete voteinput was passed in already, populate the table with it
+                    site += "<h2>Lunch Vote for %s</h2>"%(event.date)
                     if len(oldvotes) > 0:
                         site += "<h3>You have already voted, but you can change your vote.</h3>"
                     if any(voteinput):
@@ -275,7 +325,8 @@ class Lunch(object):
                     site += '''<p>Vote below by ranking each of these restaurants from 1 to 5, 
                     where 1 is "Meh," and 5 is "I really want to go here!" You can give multiple
                     restaurants the same rank if you like them equally. The rank you give
-                    restaurants will affect their future rankings.</p>'''
+                    restaurants will affect their future rankings.</p>
+                    <p>If you aren't able to attend this week, please don't vote.</p>'''
                     site += '<form method="post" action="vote">\n'
                     site += '<input type="hidden" name="u", value="%s">\n'%u
                     site += '<table class=table_vote>\n'
@@ -336,14 +387,14 @@ class Lunch(object):
         db = cherrypy.request.db
         
         #Current Event        
-        currenteventid = cherrypy.engine.publish("get-event")[0]
+        currentevent = cherrypy.engine.publish("get-event")[0]
             
         #All Events
         events = db.query(Event).order_by(Event.date.desc(), Event.id.desc()).all()
         
         site = self.header("Lunch", "Results")
         for event in events:
-            if event.id == currenteventid:                
+            if currentevent is not None and event.id == currentevent.id:
                 site += "<h2>Current Event</h2>"
             site = self.results_table(site, event)
         
@@ -373,7 +424,7 @@ class Lunch(object):
                     date = "1900-01-01"
                 date = datetime.strptime(date,"%Y-%m-%d")
                 print "ADD", name, visits, date
-                R = Restaurant(name=name, visits=visits, lastvisit=date, votes=0)
+                R = Restaurant(name=name, visits=visits, last=date)
                 db.add(R)
             else:
                 site += "Restaurant \"%s\" already in database!<br/>"%name
@@ -391,7 +442,7 @@ class Lunch(object):
         site += '<table>'
         site += '<tr><th/><th>Rank</th><th>Restaurant</th><th>Visits</th><th>Last Visit</th><th>Added</th></tr>'
         Q = db.query(Restaurant).order_by(Restaurant.visits.desc())
-        R = doRank(Q)
+        R = [(K,0) for K in Q]
         for row, rank in R:
             site += '''<tr>
                 <td>                    
@@ -423,7 +474,7 @@ class Lunch(object):
 
         site += '<hr/>People:<br/>'
         site += '<table>'
-        site += '<tr><th/><th>Name</td><th>Email</th></tr>'
+        site += '<tr><th/><th>Name</td><th>Email</th><th>Tiebreaks</th></tr>'
         Q = db.query(User).order_by(User.name)
         for row in Q:
             site += '''<tr>
@@ -434,7 +485,8 @@ class Lunch(object):
                     </form>
                 </td>'''%(row.name, row.name)
             site += '<td>%s</td>'%(row.name)
-            site += '<td>%s</td>'%(row.email)    
+            site += '<td>%s</td>'%(row.email)
+            site += '<td>%d</td>'%(row.tb_count)    
             site += '</tr>'
         site += '</table>'
         site += '</br>'
@@ -451,6 +503,11 @@ class Lunch(object):
 if __name__ == '__main__':
     #Authorized user(s) for the admin page
     userpassdict = {'admin' : 'admin'}
+
+    #Accept all inputs
+    cherrypy.config.update({'server.socket_host': '0.0.0.0',
+                        'server.socket_port': 8080,
+                       })
 
     conf = {
         '/': {

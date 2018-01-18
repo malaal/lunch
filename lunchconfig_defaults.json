@@ -1,6 +1,5 @@
 {
   "lunch": {
-    "norepeat": 21, 
     "dbfile": "lunch.db", 
     "time_start": [
       9, 
@@ -9,10 +8,12 @@
     "time_days": [
       3
     ], 
+    "hostname": "localhost", 
     "time_end": [
       11, 
       0
-    ]
+    ], 
+    "norepeat": 21
   }, 
   "smtp": {
     "user": "user", 
