@@ -1,7 +1,6 @@
 # TODO
 
 ## DO NOW
-  - Change numbering so that 1 is the best and 5 is the worst  
   - Improve the Results page:
     - Include the ties (if the event is active) or the winner and ties (if completed)
     - Include the schultze outputs on the results page
@@ -9,10 +8,6 @@
     - In the sidebar show "date: Winner" or "date: Voting"
   - Put a reminder link to the results page on the "vote received" page, and on the end-event email
   
-  - Use the ranking algorithm to select the 5 restaurants for an event
-    - Ensure that restaurants without any votes get put in the cycle so they receive some
-    - The current algorithm makes it impossible for any restaurant with a vote to have a zero rank
-    - Therefore we can use rank to quickly count votes  
   - Set a minimum rank threshold below which restaurants are retired from the list
     - This won't work since ranks are 0-5
     - Perhaps: Enforce a time window or number of votes beyond which a restaurant is removed with a below-threshold rank
@@ -23,6 +18,9 @@
     - Include the list of people coming and not coming in the end-of-event email
   - Beautify the CSS for the emails, etc
   - Only use a tie-breaker if the vote doesn't have a natural winner
+  - Verify:
+    - The ranking algorithm
+    - A good selection of restaurant choices in the getChoices algorithm
 
 ## FUTURE IDEAS
   - Allow operator to change the number of restaurants that appear in a vote
