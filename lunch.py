@@ -358,11 +358,12 @@ class Lunch(object):
 
                     #Display the received vote for verification
                     site += '<table>'      
-                    for restaurant, rank in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==event.id, Vote.user==person.id).all():
+                    for restaurant, rank in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==event.id, Vote.user==person.id).order_by(Choice.num).all():
+                        print restaurant, rank
                         site += '''<tr>                
                             <td>%s</td>
                             <td>%s</td>                        
-                        </tr>'''%(restaurant,rank)
+                        </tr>'''%(restaurant,"&#9733;"*rank)
                     site += '</table>'    
 
                     # cherrypy.engine.publish("calculate")              
@@ -375,18 +376,24 @@ class Lunch(object):
                         site += "<h3>You have already voted, but you can change your vote.</h3>"
                     if any(voteinput):
                         site += "<h3>You must rank all choices before voting.</h3>"
-                    site += '''<p>Vote below by ranking each of these restaurants from 1 to 5, 
-                    where 1 is "Meh," and 5 is "I really want to go here!" You can give multiple
-                    restaurants the same rank if you like them equally. The rank you give
-                    restaurants will affect their future rankings.</p>
+                    site += '''<p>Vote below by ranking each of these restaurants with a number of stars, 
+                    where &#9733; is "Meh," and &#9733;&#9733;&#9733;&#9733;&#9733; is "I really want to go here!" 
+                    You can give multiple restaurants the same rank if you like them equally. 
+                    The rank you give restaurants will affect their future rankings.</p>
                     <p>If you aren't able to attend this week, please don't vote.</p>'''
                     site += '<form method="post" action="vote">\n'
                     site += '<input type="hidden" name="u", value="%s">\n'%u
                     site += '<table class=table_vote>\n'
-                    site += '<tr><th/><th>1</th><th>2</th><th>3</th><th>4</th><th>5</th>\n'
-                    for i, restaurant in enumerate(db.query(Restaurant.name).join(Choice).filter(Choice.event==event.id).all()):
+                    site += '''<tr><th/>
+                    <th>&#9733;&#9733;&#9733;&#9733;&#9733;</th>
+                    <th>&#9733;&#9733;&#9733;&#9733;</th>
+                    <th>&#9733;&#9733;&#9733;</th>
+                    <th>&#9733;&#9733;</th>
+                    <th>&#9733;</th>
+                    '''
+                    for i, restaurant in enumerate(db.query(Restaurant.name).join(Choice).filter(Choice.event==event.id).order_by(Choice.num).all()):
                         site += '<tr><td>%s</td>\n'%(restaurant.name)
-                        for value in range(1,6):
+                        for value in range(5,0,-1):
                             site += '<td><input type="radio" name="c%d" value="%d" %s></td>\n'%(
                                 i, value,
                                 "checked" if "c%d"%i in args and str(value)==args["c%d"%i] else "")

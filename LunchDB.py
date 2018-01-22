@@ -153,33 +153,38 @@ def main():
     L = LunchDB("lunch.db")
     db = Session()
 
+    eid = 6
+
     #Return a list of all choices for a single event
-    for r in db.query(Choice).join(Event).filter(Event.id==1).all():
+    for r in db.query(Choice).join(Event).filter(Event.id==eid).all():
         print r
+    #Return a list of all restaurant names for a single event
+    for r in db.query(Restaurant.name).join(Choice).join(Event).filter(Event.id==eid).order_by(Choice.num).all():
+        print r        
     #return a list of all votes for a single event
-    for r in db.query(Vote, Choice).join(Choice).join(Event).filter(Event.id==1).all():
+    for r in db.query(Vote, Choice).join(Choice).join(Event).filter(Event.id==eid).all():
         print r
     #return a list of all votes for a single event and user, by choice
-    for r in db.query(Choice, Vote.rank).join(Vote).join(Event).filter(Event.id==1, Vote.user==2).all():
+    for r in db.query(Choice, Vote.rank).join(Vote).join(Event).filter(Event.id==eid, Vote.user==1).all():
         print r      
     #return a list of all votes for a single event and user, by restaurant name
-    for r in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==1, Vote.user==2).all():
+    for r in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==eid, Vote.user==1).all():
         print r     
 
     print "---------------"
     #return a list of all votes for all users for a single event
-    for u in db.query(Vote).join(User).filter(Vote.event==1): 
+    for u in db.query(Vote).join(User).filter(Vote.event==eid): 
         print u
     #return a list of all vote ranks for all users for a single event, with their choice number
-    for u in db.query(User.name, Vote.rank, Choice.num).join(Vote).join(Choice).filter(Vote.event==1): 
+    for u in db.query(User.name, Vote.rank, Choice.num).join(Vote).join(Choice).filter(Vote.event==eid): 
         print u
     #return a list of all vote ranks for all users for a single event, with their choice number and name
-    for u in db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==1): 
+    for u in db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==eid): 
         print u                   
 
     print "---------------"
     #return a list of all users who voted on a single event
-    for u in db.query(User).join(Vote).filter(Vote.event==2):
+    for u in db.query(User).join(Vote).filter(Vote.event==eid):
         print u
 
     print "---------------"

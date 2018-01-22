@@ -25,7 +25,6 @@
   - Only use a tie-breaker if the vote doesn't have a natural winner
 
 ## FUTURE IDEAS
-  - Add a button to manually end (or cancel) an event
   - Allow operator to change the number of restaurants that appear in a vote
   - Allow users to "log in" and view their:
     - voting history
@@ -34,12 +33,16 @@
   - Track rank history and plot how restaurants change over time
     - Store entore rank history in the DB or recalculate to show this data? 
     - Should be easily recalculable by only calculating votes up to a certain date
+  
   - Page to allow an admin to start a manual event at will, with a fixed list of restaurants
     - Allow this to override the automatic event
     - Or allow admin to manually set up the next automatic event early
+  - Add a button to manually end (or cancel) an event
+  
   - When a user is removed from the list, what happens to their votes?
     - Stay in place so rankings are continuous
     - Deleted with rankings immediately recalculated
+  
   - Restaurant Management:
     - Restaurants need to be effectively removed (such as if they close) without ruining all the DB relationships.
     - Allow admin to modify the name and visit date of a restaurant
