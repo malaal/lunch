@@ -3,7 +3,7 @@ import sqlite3
 from sqlalchemy.orm import sessionmaker, relationship
 from sqlalchemy import create_engine
 from sqlalchemy import event
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql.expression import func
 import os, os.path
@@ -23,6 +23,7 @@ class Restaurant(Base):
     visits = Column(Integer, default=0)         #Number of visits (ie: number of votes won)
     last = Column(Date, default=datetime(1900,1,1)) #Date of last visit (if applicable)
     added = Column(Date, default=datetime.today())   #Date added to DB
+    enabled = Column(Boolean, default=True, nullable=False) #Set to false once a restaurant is removed from all votes
 
 #TABLE: List of users on this site
 class User(Base):
@@ -180,22 +181,11 @@ def main():
     #return a list of all users who voted on a single event
     for u in db.query(User).join(Vote).filter(Vote.event==2):
         print u
-    # #For each user get the array of all their votes
-    # for u in db.query(User):
-    #     print u.votes
 
-    # #Return a list of (event, choice, restaurant name) for every choice
-    # for r in db.query(Event, Choice, Restaurant.name).join(Choice).join(Restaurant).all():
-    #     print r
-
-    # for r in db.query(Restaurant.name).join(Choice).filter(Choice.event==1).all():
-    #     print r
-
-    # #Return a list of (choice id)
-    # for r in db.query(Choice.id, Restaurant.name, Vote.rank).join(Vote).join(Restaurant).all():
-    #     print r
-
-
+    print "---------------"
+    #return a list of all votes for a single restaurant
+    for v in db.query(Vote.rank).join(Choice).join(Restaurant).filter(Restaurant.name=="Dominic's of New York").all():
+        print v
 
 if __name__ == '__main__':
     main()

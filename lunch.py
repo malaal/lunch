@@ -16,9 +16,48 @@ from datetime import datetime, date, time, timedelta
 import random
 import os
 from copy import copy
+from collections import Counter
 
 # Load global configuration options
 cfg = LunchConfig("lunchconfig.json")
+
+def dirichlet_mean(arr):
+    """
+    Computes the Dirichlet mean with a prior.
+    Adapted from: http://blog.districtdatalabs.com/computing-a-bayesian-estimate-of-star-rating-means
+    Returns a ranking from 0-5
+    """
+    PRIOR = [2,0,0,0,0,0]
+
+    counter   = Counter(arr)
+    votes     = [counter.get(n, 0) for n in range(1, 6)]
+    posterior = map(sum, zip(votes, PRIOR))
+    N         = sum(posterior)
+    weights   = map(lambda i: (i[0])*i[1], enumerate(posterior))
+
+    return float(sum(weights)) / N
+
+def calculateRank(db, user=None, update=False):
+    '''Returns a dict of {'rest name':rank} for the entire vote set,
+    OR: input a user object to calculate that user's personal ranking
+    update = TRUE to update the rank entry in a restaurant's db entry'''
+
+    rankings = {}
+    for rest in db.query(Restaurant).all():
+        ranks = db.query(Vote.rank).join(Choice).join(Restaurant).filter(Restaurant.name==rest.name)
+        if user is not None:
+            ranks = ranks.filter(Vote.user==user.id)
+        ranks = [r[0] for r in ranks.all()] #db returns single results in a tuple for some reason
+        
+        rank = dirichlet_mean(ranks)
+        rankings[rest.name] = rank
+        if update:
+            rest.rank = rank
+
+    if update:
+        db.commit()
+
+    return rankings   
 
 class Manager(Monitor):
     ''' 
@@ -126,6 +165,9 @@ class Manager(Monitor):
             rest.visits += 1
             rest.last = datetime.today()
             db.commit()
+
+            #Recalculate the restaurant ranking
+            calculateRank(db, update=True)
 
             #Email the users who voted only
             attendees = db.query(User).join(Vote).filter(Vote.event==event.id).all()
@@ -243,23 +285,24 @@ class Lunch(object):
         db = cherrypy.request.db
         datelimit = datetime.today() - timedelta(cfg.norepeat)        
 
+        #Recalculate the restaurant ranking
+        calculateRank(db, update=True)
+
         # site = "<html><head><title>Lunch</title></head>"
         site = self.header("Lunch")
-
+        
         site += '<h2>Restaurant Leaderboard</h2><br/>'
         site += '<table>'
         site += '<tr><th>Rank</th><th>Restaurant</th><th>Visits</th><th>Last Visit</th></tr>'
-        query = db.query(Restaurant).order_by(Restaurant.visits.desc())        
-        i = 1
+        query = db.query(Restaurant).order_by(Restaurant.rank.desc())        
         for row in query.all():
             rank = 1
             site += '<tr>'
-            site += '<td>%d</td>'%(i)
+            site += '<td>%.2f</td>'%(row.rank)
             site += '<td>%s</td>'%(row.name)
             site += '<td>%d</td>'%(row.visits)
             site += '<td>%s</td>'%(row.last)            
             site += '</tr>'
-            i+=1
         site += '</table>'
 
         eventcount = db.query(Event).count()
