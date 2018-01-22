@@ -97,10 +97,11 @@ class Manager(Monitor):
             <p>The lunch ballot is now open for %s.
             <a style="font-weight: bold;" href="%s">Vote Here!</a>
             </p>
+            <p><b>Voting will be open until %s today.</b></p>
             <p>If you can't make it to lunch this week, ignore this email for now.</p>
             <p>Today's options are:
                 <ul>
-            '''%(event.date, link)
+            '''%(event.date, link, cfg.time_end.strftime("%H:%M"))
             for c in event.choices:
                 email += "<li>%s</li>"%(db.query(Restaurant).join(Choice).filter(Choice.id==c.id).one().name)
             email +='''
@@ -110,33 +111,42 @@ class Manager(Monitor):
             '''
 
             self.bus.log("Emailing %s"%user.email)
-            self.mail.sendhtml([user.email], "Lunch Vote %s"%event.date, email)
+            self.mail.sendhtml([user.email], "Lunch Vote Open %s"%event.date, email)
 
     def endVote(self, db):
         self.bus.log("*** Voting has closed!")
         event = self.getEvent()
         winner, tb_user = self.calculate(db)   
     
-        #Email the users who voted only
-        attendees = db.query(User).join(Vote).filter(Vote.event==event.id).all()
-        email = '''
-        <html><body>
-        <h1>Lunch today: %s</h1>
-        <p>The lunch ballot is closed for %s.</p>
-        <p>Who is coming today:
-            <ul>
-        '''%(winner, event.date)
-        for user in attendees:
-            email += "<li>%s</li>"%(user.name)
-        email +='''
-            </ul>
-        </p>
-        <p>This week's tie-breaker was: %s</p>
-        </body></html>
-        '''%(tb_user)
+        if winner is None:
+            self.bus.log("Received no votes!")
+        else:
+            #Increment the restaurant's win list and visited date
+            rest = db.query(Restaurant).filter(Restaurant.name==winner).one_or_none()        
+            rest.visits += 1
+            rest.last = datetime.today()
+            db.commit()
 
-        self.bus.log("Emailing Results")
-        self.mail.sendhtml([user.email for user in attendees], "Lunch Vote %s"%event.date, email)
+            #Email the users who voted only
+            attendees = db.query(User).join(Vote).filter(Vote.event==event.id).all()
+            email = '''
+            <html><body>
+            <h1>Lunch today: %s</h1>
+            <p>The lunch ballot is closed for %s.</p>
+            <p>Who is coming today:
+                <ul>
+            '''%(winner, event.date)
+            for user in attendees:
+                email += "<li>%s</li>"%(user.name)
+            email +='''
+                </ul>
+            </p>
+            <p>This week's tie-breaker was: %s</p>
+            </body></html>
+            '''%(tb_user)
+
+            self.bus.log("Emailing Results")
+            self.mail.sendhtml([user.email for user in attendees], "Lunch Vote Closed %s"%event.date, email)
 
         self.eventid = None
 
@@ -205,7 +215,7 @@ class Manager(Monitor):
             return output['winner'], tb_user.name
         else:
             #No votes?!
-            return "No Votes!", ""        
+            return None, ""        
 
 class Lunch(object):
     ''' This object encapsulates the entire website '''
