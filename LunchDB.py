@@ -24,6 +24,7 @@ class Restaurant(Base):
     last = Column(Date, default=datetime(1900,1,1)) #Date of last visit (if applicable)
     added = Column(Date, default=datetime.today())   #Date added to DB
     enabled = Column(Boolean, default=True, nullable=False) #Set to false once a restaurant is removed from all votes
+    website = Column(String(500))  #Restaurant Name
 
 #TABLE: List of users on this site
 class User(Base):

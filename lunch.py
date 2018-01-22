@@ -213,13 +213,20 @@ class Manager(Monitor):
         choices = [random.choice(ranked[:third]),
                    random.choice(ranked[third:-third]),
                    random.choice(ranked[-third:])]
-        ranked = [R for R in ranked if R not in choices]
-        new = [R for R in ranked if R.visits==0]
+
+        rem = [R for R in ranked if R not in choices]
+        ranked = [R for R in rem if R.rank > 0]
+        new = [R for R in rem if R.rank==0]
         
-        #TODO: instead of picking two random ones here, get a list of
-        # "unvisited" places and pick from that.
-        # If more are still required, randomly pick from what's left.
-        choices.extend(random.sample(ranked, 5-3))
+        #Attempt to pad the list with "new" restaurants (ie: ones that have no votes)
+        if len(new) >= 2:
+            choices.extend(random.sample(new, 2))
+        else:
+            #Not enough new restaurants; randomly select from the rest
+            choices.extend(new)
+            choices.extend(random.sample(ranked, 5-len(choices)))
+
+        #randomize the output!            
         random.shuffle(choices)
         return choices
 
@@ -299,7 +306,10 @@ class Lunch(object):
             rank = 1
             site += '<tr>'
             site += '<td>%.2f</td>'%(row.rank)
-            site += '<td>%s</td>'%(row.name)
+            if row.website:
+                site += '<td><a href=%s>%s</a></td>'%(row.website, row.name)    
+            else:
+                site += '<td>%s</td>'%(row.name)
             site += '<td>%d</td>'%(row.visits)
             site += '<td>%s</td>'%(row.last)            
             site += '</tr>'
@@ -377,8 +387,8 @@ class Lunch(object):
                     if any(voteinput):
                         site += "<h3>You must rank all choices before voting.</h3>"
                     site += '''<p>Vote below by ranking each of these restaurants with a number of stars, 
-                    where &#9733; is "Meh," and &#9733;&#9733;&#9733;&#9733;&#9733; is "I really want to go here!" 
-                    You can give multiple restaurants the same rank if you like them equally. 
+                    where &#9733; is "Meh," and &#9733;&#9733;&#9733;&#9733;&#9733; is "I really want to go here!"</p>
+                    <p>You can give multiple restaurants the same rank if you like them equally. 
                     The rank you give restaurants will affect their future rankings.</p>
                     <p>If you aren't able to attend this week, please don't vote.</p>'''
                     site += '<form method="post" action="vote">\n'
@@ -391,8 +401,11 @@ class Lunch(object):
                     <th>&#9733;&#9733;</th>
                     <th>&#9733;</th>
                     '''
-                    for i, restaurant in enumerate(db.query(Restaurant.name).join(Choice).filter(Choice.event==event.id).order_by(Choice.num).all()):
-                        site += '<tr><td>%s</td>\n'%(restaurant.name)
+                    for i, rest in enumerate(db.query(Restaurant).join(Choice).filter(Choice.event==event.id).order_by(Choice.num).all()):
+                        if rest.website:
+                            site += '<tr><td><a href=%s>%s</a></td>'%(rest.website, rest.name)    
+                        else:
+                            site += '<tr><td>%s</td>'%(rest.name)
                         for value in range(5,0,-1):
                             site += '<td><input type="radio" name="c%d" value="%d" %s></td>\n'%(
                                 i, value,
