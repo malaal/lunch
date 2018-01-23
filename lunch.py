@@ -109,7 +109,7 @@ class Manager(Monitor):
         self.bus.publish("commit-session")
 
     def now(self):
-        #Returns the day of the week and the current time
+        #Returns the day of the week (0==Monday) and the current time
         now = datetime.today()
         return now.weekday(), time(now.hour, now.minute)
 
