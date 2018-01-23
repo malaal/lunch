@@ -6,6 +6,7 @@ from sqlalchemy import event
 from sqlalchemy import Column, Integer, String, Float, Date, Boolean, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql.expression import func
+from sqlalchemy.schema import Table
 import os, os.path
 from datetime import datetime
 
@@ -25,6 +26,9 @@ class Restaurant(Base):
     added = Column(Date, default=datetime.today())   #Date added to DB
     enabled = Column(Boolean, default=True, nullable=False) #Set to false once a restaurant is removed from all votes
     website = Column(String(500))  #Restaurant Name
+    
+    choices = relationship("Choice", backref="Retaurant")
+    votes = relationship("Vote", backref="Retaurant") 
 
 #TABLE: List of users on this site
 class User(Base):
@@ -55,23 +59,22 @@ class Choice(Base):
     id = Column(Integer, primary_key=True) 
     num = Column(Integer)
     event = Column(Integer, ForeignKey(Event.id))
-    restaurant = Column(Integer, ForeignKey(Restaurant.id))
-    votes = relationship("Vote", backref="Choice")
+    restaurant = Column(Integer, ForeignKey(Restaurant.id))        
 
     def __repr__(self):
         return "<Choice %d is Event %d:%d>"%(self.id, self.event, self.num)
 
-#TABLE: list of individual votes, tied to a specific Event/Choice
+#TABLE: list of individual votes, tied to a specific Event/Restaurant
 class Vote(Base):
     __tablename__ = 'votes'
     id = Column(Integer, primary_key=True)
     event = Column(Integer, ForeignKey(Event.id))
-    choice = Column(Integer, ForeignKey(Choice.id))
+    restaurant = Column(Integer, ForeignKey(Restaurant.id))
     user  = Column(Integer, ForeignKey(User.id))
-    rank = Column(Integer)
+    rank = Column(Integer)    
 
     def __repr__(self):
-        return "<Vote %d:%d=%d by %s>"%(self.event,self.choice,self.rank,self.user)
+        return "<Vote (evt %d) Rest %d=%d by %s>"%(self.event,self.restaurant,self.rank,self.user)
 
 class LunchDB(object):
     def __init__(self, dbfile):
@@ -83,8 +86,7 @@ class LunchDB(object):
 #
 # These event listeners populate a demo dataset iff a new dbfile is created
 #
-@event.listens_for(Restaurant.__table__, 'after_create')
-def demo_restaurant(target, connection, **kwargs):
+def demo_restaurant():
     print "CREATING DEMO RESTAURANTS"
     session = Session()
     session.add(Restaurant(name="Pizza",      visits=10))
@@ -97,16 +99,14 @@ def demo_restaurant(target, connection, **kwargs):
     session.add(Restaurant(name="Japanese",   visits=3))
     session.commit()
 
-@event.listens_for(Vote.__table__, 'after_create')
-def demo_person(target, connection, **kwargs):
+def demo_person():
     print "CREATING DEMO PEOPLE"
     session = Session()
     session.add(User(name="Joe Test", email="jtest@test.com"))
     session.add(User(name="Bob Test", email="atest@test.com"))
     session.commit()        
 
-@event.listens_for(Choice.__table__, 'after_create')
-def demo_event(target, connection, **kwargs):
+def demo_event():
     print "CREATING DEMO EVENTS"
     session = Session()
     event = Event()
@@ -129,69 +129,77 @@ def demo_event(target, connection, **kwargs):
     session.add(event2)    
     session.commit()    
 
-@event.listens_for(Vote.__table__, 'after_create')
-def demo_vote(target, connection, **kwargs):
+def demo_vote():
     print "CREATING DEMO VOTES"
     session = Session()
     event = session.query(Event).first()
-    event.votes.append(Vote(user=1, rank=1, choice=event.choices[0].id))
-    event.votes.append(Vote(user=1, rank=2, choice=event.choices[1].id))
-    event.votes.append(Vote(user=1, rank=3, choice=event.choices[2].id))
-    event.votes.append(Vote(user=1, rank=4, choice=event.choices[3].id))
-    event.votes.append(Vote(user=1, rank=5, choice=event.choices[4].id))
-    event.votes.append(Vote(user=2, rank=2, choice=event.choices[0].id))
-    event.votes.append(Vote(user=2, rank=1, choice=event.choices[1].id))
-    event.votes.append(Vote(user=2, rank=2, choice=event.choices[2].id))
-    event.votes.append(Vote(user=2, rank=3, choice=event.choices[3].id))
-    event.votes.append(Vote(user=2, rank=3, choice=event.choices[4].id))
+    event.votes.append(Vote(user=1, rank=1, restaurant=1))
+    event.votes.append(Vote(user=1, rank=2, restaurant=3))
+    event.votes.append(Vote(user=1, rank=3, restaurant=5))
+    event.votes.append(Vote(user=1, rank=4, restaurant=2))
+    event.votes.append(Vote(user=1, rank=5, restaurant=6))
+    event.votes.append(Vote(user=2, rank=2, restaurant=1))
+    event.votes.append(Vote(user=2, rank=1, restaurant=3))
+    event.votes.append(Vote(user=2, rank=2, restaurant=5))
+    event.votes.append(Vote(user=2, rank=3, restaurant=2))
+    event.votes.append(Vote(user=2, rank=3, restaurant=6))
     session.commit() 
 
 #
 # Code to test these features by running this directly
 #
 
+def lprint(tag, Q):
+    #List print helper for query samples
+    print "----", tag
+    for r in Q: print r
+
 def main():
-    L = LunchDB("lunch.db")
+    if not os.path.exists("lunch.db"):        
+        L = LunchDB("lunch.db")    
+        demo_restaurant()
+        demo_person()
+        demo_event()
+        demo_vote()
+    else:
+        L = LunchDB("lunch.db")
+    
     db = Session()
 
-    eid = 6
+    # 
+    # Sample Queries 
+    # 
 
-    #Return a list of all choices for a single event
-    for r in db.query(Choice).join(Event).filter(Event.id==eid).all():
-        print r
-    #Return a list of all restaurant names for a single event
-    for r in db.query(Restaurant.name).join(Choice).join(Event).filter(Event.id==eid).order_by(Choice.num).all():
-        print r        
-    #return a list of all votes for a single event
-    for r in db.query(Vote, Choice).join(Choice).join(Event).filter(Event.id==eid).all():
-        print r
-    #return a list of all votes for a single event and user, by choice
-    for r in db.query(Choice, Vote.rank).join(Vote).join(Event).filter(Event.id==eid, Vote.user==1).all():
-        print r      
-    #return a list of all votes for a single event and user, by restaurant name
-    for r in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==eid, Vote.user==1).all():
-        print r     
+    #Which event to query for all these samples    
+    eid = 1
+    #Which user to query
+    uid = 1
 
-    print "---------------"
-    #return a list of all votes for all users for a single event
-    for u in db.query(Vote).join(User).filter(Vote.event==eid): 
-        print u
-    #return a list of all vote ranks for all users for a single event, with their choice number
-    for u in db.query(User.name, Vote.rank, Choice.num).join(Vote).join(Choice).filter(Vote.event==eid): 
-        print u
-    #return a list of all vote ranks for all users for a single event, with their choice number and name
-    for u in db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==eid): 
-        print u                   
+    #Pizza, Chinese, Chicken, Sandwiches, Italian
 
-    print "---------------"
-    #return a list of all users who voted on a single event
-    for u in db.query(User).join(Vote).filter(Vote.event==eid):
-        print u
+    lprint("list of all choices for a single event",
+        db.query(Choice).join(Event).filter(Event.id==eid).all())
+    lprint("list of all restaurant names for a single event",
+        db.query(Restaurant.name).join(Choice).join(Event).filter(Event.id==eid).order_by(Choice.num).all())
+    lprint("list of all votes for a single event",
+        db.query(Vote).join(Event).filter(Event.id==eid).all())
+    lprint("list of all votes for a single event and user, by restaurant name",
+        db.query(Restaurant.name, Vote.rank).join(Vote).filter(Event.id==eid, Vote.user==uid).all())
 
-    print "---------------"
-    #return a list of all votes for a single restaurant
-    for v in db.query(Vote.rank).join(Choice).join(Restaurant).filter(Restaurant.name=="Dominic's of New York").all():
-        print v
+    lprint("list of all votes for all users for a single event",
+        db.query(Vote).join(User).filter(Vote.event==eid))
+    lprint("list of all vote ranks for all users for a single event, with their restaurant number",
+        db.query(User.name, Vote.restaurant, Vote.rank).join(Vote).filter(Vote.event==eid).all())       
+    lprint("list of all vote ranks for all users for a single event, with their restaurant name",
+        db.query(User.name, Restaurant.name, Vote.rank).join(Vote).join(Restaurant).filter(Vote.event==eid).all())       
+
+    lprint("list of all users who voted on a single event",
+        db.query(User).join(Vote).filter(Vote.event==eid).all())  
+    lprint("list of all votes for a single restaurant",
+        db.query(Vote.rank).join(Restaurant).filter(Restaurant.name=="Pizza").all())   
+
+    lprint("list of all votes for a single event and user, by restaurant name and choice number",
+        db.query(Vote.user, Vote.rank).join(Choice, Choice.restaurant==Vote.restaurant).filter(Vote.user==uid, Vote.event==eid).all())
 
 if __name__ == '__main__':
     main()

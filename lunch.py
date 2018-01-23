@@ -18,6 +18,10 @@ import os
 from copy import copy
 from collections import Counter
 
+### DEBUG
+DEBUG = False
+### DEBUG
+
 # Load global configuration options
 cfg = LunchConfig("lunchconfig.json")
 
@@ -44,7 +48,7 @@ def calculateRank(db, user=None, update=False):
 
     rankings = {}
     for rest in db.query(Restaurant).all():
-        ranks = db.query(Vote.rank).join(Choice).join(Restaurant).filter(Restaurant.name==rest.name)
+        ranks = db.query(Vote.rank).join(Restaurant).filter(Restaurant.name==rest.name)
         if user is not None:
             ranks = ranks.filter(Vote.user==user.id)
         ranks = [r[0] for r in ranks.all()] #db returns single results in a tuple for some reason
@@ -62,8 +66,8 @@ def calculateRank(db, user=None, update=False):
 class Manager(Monitor):
     ''' 
     This CherryPy plugin manages creation and operation of vote sessions.
-    Is is set up to be run once a minute, and operates based on the 
-    current time and day, and LunchConfig
+    Is is set up to be run twice a minute, and operates based on the 
+    current time and day, and values of LunchConfig
     '''
     def __init__(self, bus, interval):
         super(Manager, self).__init__(bus, self.run, interval)
@@ -76,13 +80,11 @@ class Manager(Monitor):
         self.mail = LunchMail(cfg.smtp["server"], cfg.smtp["port"], cfg.smtp["user"], cfg.smtp["pass"])
 
     def start(self):
-        self.bus.subscribe("get-event", self.getEvent)
-        self.bus.subscribe("calculate", self.calculate)
+        self.bus.subscribe("get-event", self.getEvent)        
         super(Manager, self).start()
 
     def stop(self):
-        self.bus.unsubscribe("get-event", self.getEvent)
-        self.bus.unsubscribe("calculate", self.calculate)
+        self.bus.unsubscribe("get-event", self.getEvent)        
         super(Manager, self).stop()
 
     def getEventId(self):
@@ -150,7 +152,7 @@ class Manager(Monitor):
             '''
 
             self.bus.log("Emailing %s"%user.email)
-            self.mail.sendhtml([user.email], "Lunch Vote Open %s"%event.date, email)
+            self.mail.sendhtml([user.email], "Lunch Vote Open %s"%event.date, email, test=DEBUG)
 
     def endVote(self, db):
         self.bus.log("*** Voting has closed!")
@@ -188,7 +190,7 @@ class Manager(Monitor):
             '''%(tb_user)
 
             self.bus.log("Emailing Results")
-            self.mail.sendhtml([user.email for user in attendees], "Lunch Vote Closed %s"%event.date, email)
+            self.mail.sendhtml([user.email for user in attendees], "Lunch Vote Closed %s"%event.date, email, test=DEBUG)
 
         self.eventid = None
 
@@ -204,7 +206,7 @@ class Manager(Monitor):
         votedate = self.today()
         restaurants = db.query(Restaurant).all()
 
-        #Select restaurants out of the noRepeatWeeks range                
+        #Select restaurants out of the noRepeatWeeks range, and sort by rank                
         validRestaurants = [R for R in restaurants if R.last <= votedate - timedelta(1+cfg.norepeat)]        
         ranked = sorted(validRestaurants, key=lambda I:I.rank, reverse=True)
 
@@ -235,13 +237,13 @@ class Manager(Monitor):
 
         #return a dict of all votes for all users for a single event
         votes = {}
-        event_votes = db.query(User.name, Vote.rank, Choice.num, Restaurant.name).join(Vote).join(Choice).join(Restaurant).filter(Vote.event==self.eventid)
+        event_votes = db.query(User.name, Vote.rank, Restaurant.name).join(Vote).join(Restaurant).filter(Vote.event==self.eventid)
 
         if event_votes.count() > 0:
-            for name, rank, i, rest in event_votes.all():
-                entry = votes.get(name, {})
+            for user, rank, rest in event_votes.all():
+                entry = votes.get(user, {})
                 entry[rest] = rank
-                votes[name] = entry
+                votes[user] = entry
         
             #Format the list into the input for Schulze
             input = []
@@ -254,7 +256,7 @@ class Manager(Monitor):
             tb_user = random.choice(users)
 
             tb_votes = event_votes.filter(Vote.user == tb_user.id).order_by(Vote.rank.desc()).all()
-            tb_list = [x[3] for x in tb_votes]        
+            tb_list = [x[2] for x in tb_votes]        
 
             #Update the user's tb_count
             tb_user.tb_count += 1
@@ -268,7 +270,9 @@ class Manager(Monitor):
 
 class Lunch(object):
     ''' This object encapsulates the entire website '''
+
     def header(self, title="Lunch", subtitle=""):
+        #Common header HTML
         title = "%s%s"%(title, (": " + subtitle) if subtitle else "")
         head = '''<html><head>
         <title>%s</title>
@@ -283,6 +287,7 @@ class Lunch(object):
         return head
 
     def footer(self):
+        #Common footer HTML
         #foot = '<div id=footer>Lunch</div></body></html>'
         foot = '</body></html>'
         return foot
@@ -356,7 +361,7 @@ class Lunch(object):
 
                 if action=='vote' and all(voteinput):
                     # SUBMITTING A VOTE
-                    newvotes = [Vote(user=person.id, event=event.id, choice=event.choices[i].id, rank=voteinput[i]) for i in range(5)]
+                    newvotes = [Vote(user=person.id, event=event.id, restaurant=event.choices[i].restaurant, rank=voteinput[i]) for i in range(5)]
 
                     if len(oldvotes)==0:
                         site += "<h2>Vote received!</h2>"
@@ -368,12 +373,12 @@ class Lunch(object):
 
                     #Display the received vote for verification
                     site += '<table>'      
-                    for restaurant, rank in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==event.id, Vote.user==person.id).order_by(Choice.num).all():
-                        print restaurant, rank
+                    #for rest, rank in db.query(Restaurant.name, Vote.rank).join(Choice).join(Vote).join(Event).filter(Event.id==event.id, Vote.user==person.id).order_by(Choice.num).all():
+                    for rest, rank in db.query(Restaurant.name, Vote.rank).join(Vote).filter(Vote.event==event.id, Vote.user==person.id).all():
                         site += '''<tr>                
                             <td>%s</td>
                             <td>%s</td>                        
-                        </tr>'''%(restaurant,"&#9733;"*rank)
+                        </tr>'''%(rest,"&#9733;"*rank)
                     site += '</table>'    
 
                     # cherrypy.engine.publish("calculate")              
@@ -388,6 +393,7 @@ class Lunch(object):
                         site += "<h3>You must rank all choices before voting.</h3>"
                     site += '''<p>Vote below by ranking each of these restaurants with a number of stars, 
                     where &#9733; is "Meh," and &#9733;&#9733;&#9733;&#9733;&#9733; is "I really want to go here!"</p>
+                    <p>Your restaurant choice for this week will be the highest-ranked choice(s) voted for. If you're forced to pick the lesser of two evils, rank them accordingly!</p>
                     <p>You can give multiple restaurants the same rank if you like them equally. 
                     The rank you give restaurants will affect their future rankings.</p>
                     <p>If you aren't able to attend this week, please don't vote.</p>'''
@@ -431,18 +437,21 @@ class Lunch(object):
         site += "<table class=table_results>\n"
         # site += "<caption>Votes recorded</caption>"
         site += "<tr><th/>"
-        for c in event.choices:
-            site += "<th>%s</th>"%(db.query(Restaurant).join(Choice).filter(Choice.id==c.id).one().name)
+
+        restaurants = [db.query(Restaurant).join(Choice).filter(Choice.id==c.id).one().name for c in event.choices]
+
+        for r in restaurants:
+            site += "<th>%s</th>"%(r)
         site += "</tr>\n"
 
         #print out the votes (user name, rank, rank, rank, etc.)
         #build a dictionary from a query and then display that.
 
         #return a list of all votes for all users for a single event
-        votes = {}
-        for name, rank, i in db.query(User.name, Vote.rank, Choice.num).join(Vote).join(Choice).filter(Vote.event==event.id).all():
+        votes = {}        
+        for name, rank, rest in db.query(User.name, Vote.rank, Restaurant.name).join(Vote).join(Restaurant).filter(Vote.event==event.id).all():
             entry = votes.get(name, [-1, -1, -1, -1, -1])
-            entry[i] = rank
+            entry[restaurants.index(rest)] = rank
             votes[name] = entry
 
         for u in sorted(votes.keys()):
@@ -600,7 +609,10 @@ if __name__ == '__main__':
         }
     }
 
-    Manager(cherrypy.engine, 1).subscribe()
+    if DEBUG:
+        Manager(cherrypy.engine, 1).subscribe()
+    else:
+        Manager(cherrypy.engine, 60).subscribe()
     SAEnginePlugin(cherrypy.engine, 'sqlite:///'+cfg.dbfile).subscribe()
     cherrypy.tools.db = SATool()
     cherrypy.quickstart(Lunch(), '/', conf)
