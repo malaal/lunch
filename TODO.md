@@ -12,6 +12,7 @@
     - This won't work since ranks are 0-5
     - Perhaps: Enforce a time window or number of votes beyond which a restaurant is removed with a below-threshold rank
 
+
 ## DO LATER  
   - Only use a tie-breaker if the vote doesn't have a natural winner
   - If a user goes back to change their vote, populate the screen with their old vote
@@ -22,11 +23,12 @@
     - The ranking algorithm
     - A good selection of restaurant choices in the getChoices algorithm
   - Move global "DEBUG" into the JSON    
+  - Add an "admin" or "user_type" column to users so future users can have admin rights granted
 
 ## FUTURE IDEAS
   - Improve the SQLAlchemy to be more relationship and less query based?
     - ex: use event = relationship("Event") and event_id=ForeignKey("Event")
-    
+
   - Allow operator to change the number of restaurants that appear in a vote
   - Allow users to "log in" and view their:
     - voting history

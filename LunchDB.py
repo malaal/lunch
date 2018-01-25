@@ -47,11 +47,16 @@ class Event(Base):
     __tablename__ = 'events'
     id = Column(Integer, primary_key=True)
     date = Column(Date, default=func.now())   #Date of event
+    winner_id = Column(Integer, ForeignKey(Restaurant.id))
+    tiebreaker_id = Column(Integer, ForeignKey(User.id))
+    
+    winner = relationship("Restaurant")
+    tiebreaker = relationship("User")
     choices = relationship("Choice", backref="Event")
     votes = relationship("Vote", backref="Event")
 
     def __repr__(self):
-        return "<Event {}>".format(self.date)
+        return "<Event {} %s>".format(self.date, "Win: %s"%self.winner.name if self.winner else "")
 
 #TABLE: List of the choices mapped to vote events (each event has several)
 class Choice(Base):

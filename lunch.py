@@ -134,7 +134,7 @@ class Manager(Monitor):
 
             email = '''
             <html><body>
-            <h1>Lunch!</h1>
+            <h1>Lunch Today!</h1>
             <p>The lunch ballot is now open for %s.
             <a style="font-weight: bold;" href="%s">Vote Here!</a>
             </p>
@@ -166,6 +166,9 @@ class Manager(Monitor):
             rest = db.query(Restaurant).filter(Restaurant.name==winner).one_or_none()        
             rest.visits += 1
             rest.last = datetime.today()
+
+            event.winner = rest
+            event.tie_breaker = tb_user
             db.commit()
 
             #Recalculate the restaurant ranking
@@ -175,7 +178,7 @@ class Manager(Monitor):
             attendees = db.query(User).join(Vote).filter(Vote.event==event.id).all()
             email = '''
             <html><body>
-            <h1>Lunch today: %s</h1>
+            <h1>Lunch Today:<br/>%s</h1>
             <p>The lunch ballot is closed for %s.</p>
             <p>Who is coming today:
                 <ul>
@@ -187,7 +190,7 @@ class Manager(Monitor):
             </p>
             <p>This week's tie-breaker was: %s</p>
             </body></html>
-            '''%(tb_user)
+            '''%(tb_user.name)
 
             self.bus.log("Emailing Results")
             self.mail.sendhtml([user.email for user in attendees], "Lunch Vote Closed %s"%event.date, email, test=DEBUG)
@@ -263,7 +266,7 @@ class Manager(Monitor):
             db.commit()
 
             output = SchulzeMethod(input, tie_breaker=tb_list, ballot_notation="rating").as_dict()
-            return output['winner'], tb_user.name
+            return output['winner'], tb_user
         else:
             #No votes?!
             return None, ""        
@@ -271,14 +274,18 @@ class Manager(Monitor):
 class Lunch(object):
     ''' This object encapsulates the entire website '''
 
-    def header(self, title="Lunch", subtitle=""):
+    def header(self, title="Lunch Today", subtitle=""):
         #Common header HTML
-        title = "%s%s"%(title, (": " + subtitle) if subtitle else "")
+        pagetitle = "%s%s"%(title, (": " + subtitle) if subtitle else "")
         head = '''<html><head>
         <title>%s</title>
         <link rel="stylesheet" href="static/style.css"/>
-        </head>'''%title   
-        head += "<body><div id=header>%s</div>"%(title) 
+        </head>'''%pagetitle   
+        head += "<body><div id=header><b>%s</b>"%(title) 
+        if subtitle:
+            head += ": %s</div>"%subtitle
+        else:
+            head += "</div>"
         head += "<div id=menu>"
         # head += "<div class=menu_button><a href=/admin>Admin</a></div>"
         head += "<div class=menu_button><a href=/results>Results</a></div>"
@@ -301,7 +308,7 @@ class Lunch(object):
         calculateRank(db, update=True)
 
         # site = "<html><head><title>Lunch</title></head>"
-        site = self.header("Lunch")
+        site = self.header()
         
         site += '<h2>Restaurant Leaderboard</h2><br/>'
         site += '<table>'
@@ -345,7 +352,7 @@ class Lunch(object):
         except ValueError:
             voteinput = [None, None, None, None, None]
 
-        site = self.header("Lunch", "Vote") 
+        site = self.header(subtitle="Vote") 
 
         #TODO: Verify the user is in the Users table and check if they've voted in this event already        
         person = db.query(User).filter_by(email=u).one_or_none()
@@ -424,14 +431,14 @@ class Lunch(object):
         site += self.footer()
         return site
 
-    def results_table(self, site, event):
+    def results_table(self, event):
         '''
         This helper prints a table of votes for the input event
         '''
 
         db = cherrypy.request.db
 
-        site += '<h2>%s</h2>'%(event.date)
+        site = '<hr/><h3>Votes Collected</h3>'
 
         #print out the header row (restaurant names)
         site += "<table class=table_results>\n"
@@ -465,20 +472,54 @@ class Lunch(object):
         return site
 
     @cherrypy.expose
-    def results(self, count=10):
+    def results(self, evtid=None, count=10):
         db = cherrypy.request.db
         
         #Current Event        
         currentevent = cherrypy.engine.publish("get-event")[0]
+        selectedevent = None
+
+        #Set the selectedevent; it might end up being None!
+        if evtid is None:
+            if currentevent is not None:
+                selectedevent = currentevent
+            else:
+                selectedevent = db.query(Event).order_by(Event.id.desc()).first()
+        else:
+            selectedevent = db.query(Event).filter(Event.id==evtid).one_or_none()
             
         #All Events
         events = db.query(Event).order_by(Event.date.desc(), Event.id.desc()).all()
-        
-        site = self.header("Lunch", "Results")
+
+        site = self.header(subtitle="Results")
+
+        #Sidebar
+        site += "<div id=results_sidebar>"
+        site += "<h1>Event List</h1>"        
+        if len(events)==0:
+            site += "<p>No Events</p>"
         for event in events:
-            if currentevent is not None and event.id == currentevent.id:
-                site += "<h2>Current Event</h2>"
-            site = self.results_table(site, event)
+            site += "<p><a href=/results?evtid=%d>%s"%(event.id, event.date)
+            print event
+            if event.winner:
+                site += ": %s"%(event.winner.name)
+            site += "</a></p>"
+        site += "</div>"
+
+        site += "<div id=results_content>"
+        if selectedevent is None:
+            site += "<p>No events</p>"
+        else:
+            site += "<h1>Results for %s</h1>"%(selectedevent.date)
+            if selectedevent.winner:
+                site += "<h2>Winner: %s</h2>"%(selectedevent.winner.name)
+            site += self.results_table(selectedevent)
+        site += "</div>"
+        
+        # for event in events:
+        #     if currentevent is not None and event.id == currentevent.id:
+        #         site += "<h2>Current Event</h2>"
+        #     site = self.results_table(site, event)
         
         site += self.footer()
         return site
@@ -487,7 +528,7 @@ class Lunch(object):
     def admin(self, action="", name="", visits=0, date="", email="", **kwargs):
         db = cherrypy.request.db
         
-        site = self.header("Lunch", "Admin") 
+        site = self.header(subtitle="Admin") 
 
         cherrypy.log("ADMIN ACTION: %s"%action)
 
