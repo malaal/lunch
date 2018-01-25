@@ -2,15 +2,15 @@
 
 ## DO NOW
   - Improve the Results page:
-    - Include the ties (if the event is active) or the winner and ties (if completed)
     - Include the schultze outputs on the results page
-    - Make a clean sidebar to click for detailed results
-    - In the sidebar show "date: Winner" or "date: Voting"
   - Put a reminder link to the results page on the "vote received" page, and on the end-event email
   
   - Set a minimum rank threshold below which restaurants are retired from the list
     - This won't work since ranks are 0-5
     - Perhaps: Enforce a time window or number of votes beyond which a restaurant is removed with a below-threshold rank
+
+  - Add email throttling delay time to the JSON
+  - Stop the loop if errors happen sending emails?
 
 
 ## DO LATER  
@@ -18,6 +18,7 @@
   - If a user goes back to change their vote, populate the screen with their old vote
   - Add a button on the email to have an "I'm not coming" option
     - Include the list of people coming and not coming in the end-of-event email
+    - Allow users to say "I'm not coming" and thereby cancel their previous vote
   - Beautify the CSS for the emails, etc
   - Verify:
     - The ranking algorithm
@@ -55,6 +56,8 @@
     - Add a cooldown so restaurants fade in ranking (and are then more likely to be selected for a new vote)
   - Use a nonce instead of an email address to authenticate users to prevent voter fraud
     - Send the nonce in the email to each user
+
+  - Use the Yelp API to include a yelp star rating on the voting page
 
 ## BUGS
   - Doesn't work if there are fewer than five restaurants on the list

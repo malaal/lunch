@@ -13,13 +13,14 @@ from sqlalchemy import cast, Date
 from pyvotecore.schulze_method import SchulzeMethod
 
 from datetime import datetime, date, time, timedelta
+from time import sleep
 import random
 import os
 from copy import copy
 from collections import Counter
 
 ### DEBUG
-DEBUG = False
+DEBUG = True
 ### DEBUG
 
 # Load global configuration options
@@ -62,6 +63,48 @@ def calculateRank(db, user=None, update=False):
         db.commit()
 
     return rankings   
+
+def calculateVote(db, event, break_ties=False):
+    '''Calculate the winner for this event based on current votes'''
+
+    #return a dict of all votes for all users for a single event
+    votes = {}
+    event_votes = db.query(User.name, Vote.rank, Restaurant.name).join(Vote).join(Restaurant).filter(Vote.event==event.id)
+
+    if event_votes.count() > 0:
+        for user, rank, rest in event_votes.all():
+            entry = votes.get(user, {})
+            entry[rest] = rank
+            votes[user] = entry
+    
+        #Format the list into the input for Schulze
+        input = []
+        for v in votes:
+            input.append({"count":1, "ballot":copy(votes[v])})
+
+        output = SchulzeMethod(input, ballot_notation="rating").as_dict()
+        tb_user = None
+
+        if "tied_winners" in output and break_ties:            
+            #Randomly select a tie-breaker user among those voters tied for the lowest tb_count            
+            users = db.query(User).join(Vote).filter(Vote.event==event.id).order_by(User.tb_count).all()
+            users = [U for U in users if U.tb_count == users[0].tb_count]
+            tb_user = random.choice(users)
+
+            tb_votes = event_votes.filter(Vote.user == tb_user.id).order_by(Vote.rank.desc()).all()
+            tb_list = [x[2] for x in tb_votes]        
+
+            #Update the user's tb_count
+            tb_user.tb_count += 1
+            db.commit()
+
+            output = SchulzeMethod(input, tie_breaker=tb_list, ballot_notation="rating").as_dict()
+
+        return output, tb_user
+
+    else:
+        #No votes?!
+        return None, ""    
 
 class Manager(Monitor):
     ''' 
@@ -153,15 +196,18 @@ class Manager(Monitor):
 
             self.bus.log("Emailing %s"%user.email)
             self.mail.sendhtml([user.email], "Lunch Vote Open %s"%event.date, email, test=DEBUG)
+            sleep(15)
 
     def endVote(self, db):
         self.bus.log("*** Voting has closed!")
         event = self.getEvent()
-        winner, tb_user = self.calculate(db)   
-    
-        if winner is None:
+        results, tb_user = calculateVote(db, event, True)
+            
+        if results is None:
             self.bus.log("Received no votes!")
         else:
+            winner = results['winner']        
+            
             #Increment the restaurant's win list and visited date
             rest = db.query(Restaurant).filter(Restaurant.name==winner).one_or_none()        
             rest.visits += 1
@@ -235,42 +281,6 @@ class Manager(Monitor):
         random.shuffle(choices)
         return choices
 
-    def calculate(self, db):
-        '''Calculate the winner for this event based on current votes'''
-
-        #return a dict of all votes for all users for a single event
-        votes = {}
-        event_votes = db.query(User.name, Vote.rank, Restaurant.name).join(Vote).join(Restaurant).filter(Vote.event==self.eventid)
-
-        if event_votes.count() > 0:
-            for user, rank, rest in event_votes.all():
-                entry = votes.get(user, {})
-                entry[rest] = rank
-                votes[user] = entry
-        
-            #Format the list into the input for Schulze
-            input = []
-            for v in votes:
-                input.append({"count":1, "ballot":copy(votes[v])})
-
-            #Randomly select a tie-breaker user among those tied for the lowest tb_count            
-            users = db.query(User).order_by(User.tb_count).all()
-            users = [U for U in users if U.tb_count == users[0].tb_count]
-            tb_user = random.choice(users)
-
-            tb_votes = event_votes.filter(Vote.user == tb_user.id).order_by(Vote.rank.desc()).all()
-            tb_list = [x[2] for x in tb_votes]        
-
-            #Update the user's tb_count
-            tb_user.tb_count += 1
-            db.commit()
-
-            output = SchulzeMethod(input, tie_breaker=tb_list, ballot_notation="rating").as_dict()
-            return output['winner'], tb_user
-        else:
-            #No votes?!
-            return None, ""        
-
 class Lunch(object):
     ''' This object encapsulates the entire website '''
 
@@ -280,6 +290,14 @@ class Lunch(object):
         head = '''<html><head>
         <title>%s</title>
         <link rel="stylesheet" href="static/style.css"/>
+        <link rel="apple-touch-icon" sizes="180x180" href="/static/apple-touch-icon.png">
+        <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+        <link rel="icon" type="image/png" sizes="16x16" href="/static/favicon-16x16.png">
+        <link rel="manifest" href="/static/manifest.json">
+        <link rel="mask-icon" href="/static/safari-pinned-tab.svg" color="#cf9e5c">
+        <link rel="shortcut icon" href="/static/favicon.ico">
+        <meta name="msapplication-config" content="/static/browserconfig.xml">
+        <meta name="theme-color" content="#ffffff">        
         </head>'''%pagetitle   
         head += "<body><div id=header><b>%s</b>"%(title) 
         if subtitle:
@@ -500,7 +518,6 @@ class Lunch(object):
             site += "<p>No Events</p>"
         for event in events:
             site += "<p><a href=/results?evtid=%d>%s"%(event.id, event.date)
-            print event
             if event.winner:
                 site += ": %s"%(event.winner.name)
             site += "</a></p>"
@@ -510,9 +527,18 @@ class Lunch(object):
         if selectedevent is None:
             site += "<p>No events</p>"
         else:
+            results, _ = calculateVote(db, selectedevent)            
+
             site += "<h1>Results for %s</h1>"%(selectedevent.date)
             if selectedevent.winner:
                 site += "<h2>Winner: %s</h2>"%(selectedevent.winner.name)
+            if 'tied_winners' in results:
+                print results['tied_winners']
+                site += "<p>Ties: "
+                site += ", ".join(results['tied_winners'])
+                site += "</p>"
+            if selectedevent.tiebreaker:
+                site += "<p>Tiebreaker: %s</p>"%(event.tiebreaker.name)
             site += self.results_table(selectedevent)
         site += "</div>"
         
