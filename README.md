@@ -1,4 +1,4 @@
-![](https://github.com/malaal/lunchtoday/blob/master/static/favicon.ico "Lunch Today") 
+![Lunch Today](https://github.com/malaal/lunchtoday/blob/master/static/lunchtoday_full.png) 
 ## Lunch Today
 ### What's for lunch today?
 
