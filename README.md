@@ -1,4 +1,5 @@
-## Lunch	
+## Lunch Today
+### What's for lunch today?
 
 Web-based lunch voting system, using SQLAlchemy/SQLite and CherryPy. Voting based on python-vote.
 
