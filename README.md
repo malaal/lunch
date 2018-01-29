@@ -4,7 +4,7 @@
 
 Web-based lunch voting system for Python, using SQLAlchemy/SQLite and CherryPy. Runs as it's own webserver and stores it's data in a DB. On designed days, sends out an email to a group of people with a list of restaurant choices and directs them to the website to submit their votes.
 
-Still a work in progress, but working!
+Still a work in progress, but good enough to solve your lunch decisions. See [The TODO list](TODO.md) for a look at what's to come.
 
 ### Requirements
 Install these however you prefer to install Python modules.
