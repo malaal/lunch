@@ -20,7 +20,7 @@ from copy import copy
 from collections import Counter
 
 ### DEBUG
-DEBUG = True
+DEBUG = False
 ### DEBUG
 
 # Load global configuration options
@@ -532,7 +532,7 @@ class Lunch(object):
             site += "<h1>Results for %s</h1>"%(selectedevent.date)
             if selectedevent.winner:
                 site += "<h2>Winner: %s</h2>"%(selectedevent.winner.name)
-            if 'tied_winners' in results:
+            if results and 'tied_winners' in results:
                 print results['tied_winners']
                 site += "<p>Ties: "
                 site += ", ".join(results['tied_winners'])
