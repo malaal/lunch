@@ -234,9 +234,12 @@ class Manager(Monitor):
             email +='''
                 </ul>
             </p>
-            <p>This week's tie-breaker was: %s</p>
-            </body></html>
-            '''%(tb_user.name)
+            '''
+
+            if tb_user is not None:
+                email += "<p>This week's tie-breaker was: %s</p>"%(tb_user.name)
+            
+            email += "</body></html>"            
 
             self.bus.log("Emailing Results")
             self.mail.sendhtml([user.email for user in attendees], "Lunch Vote Closed %s"%event.date, email, test=DEBUG)
