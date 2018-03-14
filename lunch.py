@@ -541,7 +541,7 @@ class Lunch(object):
                 site += ", ".join(results['tied_winners'])
                 site += "</p>"
             if selectedevent.tiebreaker:
-                site += "<p>Tiebreaker: %s</p>"%(event.tiebreaker.name)
+                site += "<p>Tiebreaker: %s</p>"%(selectedevent.tiebreaker.name)
             site += self.results_table(selectedevent)
         site += "</div>"
         
@@ -657,9 +657,18 @@ if __name__ == '__main__':
     userpassdict = {'admin' : 'admin'}
 
     #Accept all inputs
-    cherrypy.config.update({'server.socket_host': '0.0.0.0',
-                        'server.socket_port': 8080,
-                       })
+    cherrypy.config.update({
+        'server.socket_host': '0.0.0.0',
+        'server.socket_port': 8080,
+        })
+
+    #Disable auto reload
+    cherrypy.config.update({
+        'global': {
+            # 'environment' : 'production'
+            'engine.autoreload.on': False,
+        }
+    })    
 
     conf = {
         '/': {
